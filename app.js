@@ -80,12 +80,11 @@
   const METHODS = ["Bank transfer", "Telebirr", "Cash", "Cheque"];
   const EXP_STATUS = ["Expected", "Delayed", "Received", "Cancelled"];
   const PROB_STATUS = ["Open", "In progress", "Solved"];
-  const PROD_STAGES = ["Cutting", "Edge banding", "Assembly", "Finishing", "Ready", "Installed"];
 
   /* ---------- data store ---------- */
   const SAMPLE = window.REPORT_DATA || { company: {} };
   const STORE_KEY = "cr-daily-v1";
-  const DATASETS = ["leads", "payments", "expAdvance", "expFinal", "problems", "production", "social"];
+  const DATASETS = ["leads", "payments", "expAdvance", "expFinal", "problems", "social"];
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   function normalize(d) {
@@ -235,15 +234,7 @@
     v.probNewToday = v.problems.filter((p) => p.date === T);
     v.probSolvedWeek = v.problems.filter((p) => p.status === "Solved" && within(p.solvedDate, ws, T));
 
-    // 06 production
-    v.prodWeek = inRange(D.production, "date", ws, T);
-    v.prodLastTD = inRange(D.production, "date", lws, lwT);
-    v.prodSeries = series12(D.production, (r) => r.date, (r) => r.units);
-    v.prodStages = PROD_STAGES.map((st) => ({ label: st, value: sum(v.prodWeek.filter((r) => r.stage === st), (r) => r.units) }));
-    v.prodBoxes = sum(v.prodWeek, (r) => r.units);
-    v.prodOrders = new Set(v.prodWeek.map((r) => r.customer).filter(Boolean)).size;
-
-    // 07 social media
+    // 06 social media
     const socFor = (w) => D.social.filter((r) => isISO(r.week) && weekStart(r.week) === w);
     const agg = (rows) => {
       const m = new Map();
@@ -261,10 +252,10 @@
     v.soc = Object.fromEntries(["posts", "followers", "views", "inquiries"].map((k) => [k, { cur: tot(v.socWeek, k), prev: tot(v.socLast, k) }]));
     v.socialLeads = v.leadsWeek.filter((l) => SOCIAL.includes(l.source)).length;
 
-    // 08 weekly leads
+    // 07 weekly leads
     v.leadSeries = series12(D.leads, (l) => l.date);
 
-    // 09 converted
+    // 08 converted
     const paidDateOf = (l) => (isISO(l.paidDate) ? l.paidDate : l.date);
     v.paidDateOf = paidDateOf;
     const conv = D.leads.filter((l) => l.stage === "Paid customer");
@@ -728,21 +719,6 @@
         ],
         emptyTitle: "No problems", emptyText: "Good news, or add problems in the Data sheet.",
       }),
-      production: new DataTable($("#production-table"), {
-        name: "production-this-week", search: ["customer", "product", "stage", "note"], placeholder: "Search orders",
-        filters: [{ key: "stage", label: "Stage", options: PROD_STAGES }],
-        sort: { key: "date", dir: -1 },
-        columns: [
-          { key: "date", label: "Date", cell: (r) => fday(r.date), cls: "muted" },
-          { key: "customer", label: "Customer / order", cls: "strong" },
-          { key: "product", label: "Product" },
-          { key: "stage", label: "Stage", cell: (r) => badge(r.stage) },
-          { key: "note", label: "Note", cls: "wrap muted" },
-          { key: "units", label: "Boxes", num: true, cell: (r) => num(Number(r.units) || 0) },
-        ],
-        summary: (rows) => ["Total ", h("strong", {}, `${num(sum(rows, (r) => r.units))} boxes`)],
-        emptyTitle: "No production recorded this week", emptyText: "Add production rows in the Data sheet.",
-      }),
       converted: new DataTable($("#convert-table"), {
         name: "new-paid-customers",
         sort: { key: "paid", dir: -1 },
@@ -781,7 +757,7 @@
     $("#kpi-tiles").replaceChildren(
       tile("New leads today", num(v.leadsToday.length), `${num(v.leadsWeek.length)} this week`),
       tile("New paid customers", num(v.convWeek.length), compare(v.convWeek.length, v.convLastTD.length) || "This week"),
-      tile("Boxes this week", num(v.prodBoxes), compare(v.prodBoxes, sum(v.prodLastTD, (r) => r.units)) || `${num(v.prodOrders)} orders`),
+      tile("Social media inquiries", num(v.soc.inquiries.cur), compare(v.soc.inquiries.cur, v.soc.inquiries.prev) || `${num(v.socialLeads)} leads from social`),
       tile("Expected advance", moneyC(sum(v.adv.dueWeek)), expFoot(v.adv), money(sum(v.adv.dueWeek))),
       tile("Expected final", moneyC(sum(v.fin.dueWeek)), expFoot(v.fin), money(sum(v.fin.dueWeek))),
       tile("Open problems", num(v.probOpen.length + v.probProg.length), v.probNewToday.length ? `${num(v.probNewToday.length)} new today` : `${num(v.probSolvedWeek.length)} solved this week`));
@@ -832,19 +808,6 @@
       { label: "Solved this week", value: num(v.probSolvedWeek.length), foot: "Closed since Monday" },
     ]);
     TABLES.problems.setRows(v.problems);
-  }
-
-  function renderProduction() {
-    const v = V;
-    const done = v.prodSeries.slice(0, 11);
-    const avg = done.some(Boolean) ? sum(done, (x) => x) / done.length : NaN;
-    statStrip($("#production-stats"), [
-      { label: "Boxes this week", value: num(v.prodBoxes), foot: compare(v.prodBoxes, sum(v.prodLastTD, (r) => r.units)) || "So far this week" },
-      { label: "Orders in production", value: num(v.prodOrders), foot: "Different customers / orders" },
-      { label: "Ready or installed", value: num(sum(v.prodWeek.filter((r) => r.stage === "Ready" || r.stage === "Installed"), (r) => r.units)), foot: "Boxes this week" },
-      { label: "Average per week", value: Number.isFinite(avg) ? num(Math.round(avg)) : "—", foot: "Boxes, last 11 weeks" },
-    ]);
-    TABLES.production.setRows(v.prodWeek);
   }
 
   function renderSocial() {
@@ -904,11 +867,6 @@
   chart("paidTypes", { fluid: true, draw: (el) => drawHBars(el, V.paidTypes, { fmt: moneyC, tipFmt: money, unit: "paid" }), table: () => ({ head: ["Type", "Paid", "Payments"], num: [1, 2], rows: V.paidTypes.map((t) => [t.label, money(t.value), t.extra[0].value]) }) });
   chart("leadSources", { fluid: true, draw: (el) => drawHBars(el, V.leadSources, { unit: "leads" }), table: () => ({ head: ["Source", "Leads", "Became paid"], num: [1, 2], rows: V.leadSources.map((x) => [x.label, num(x.value), x.extra[0].value]) }) });
   chart("leadStages", { fluid: true, draw: (el) => drawHBars(el, V.leadStages, { unit: "leads" }), table: () => ({ head: ["Stage", "Leads"], num: [1], rows: V.leadStages.map((x) => [x.label, num(x.value)]) }) });
-  chart("prodWeeks", {
-    draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "Boxes", key: "in", values: V.prodSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "Boxes produced per week" }),
-    table: () => ({ head: ["Week", "Boxes"], num: [1], rows: V.weekLabels.map((w, i) => [w.long, num(V.prodSeries[i])]) }),
-  });
-  chart("prodStages", { fluid: true, draw: (el) => drawHBars(el, V.prodStages, { unit: "boxes" }), table: () => ({ head: ["Stage", "Boxes"], num: [1], rows: V.prodStages.map((x) => [x.label, num(x.value)]) }) });
   chart("socialInq", { fluid: true, draw: (el) => drawHBars(el, V.socialInq, { unit: "inquiries" }), table: () => ({ head: ["Platform", "Inquiries"], num: [1], rows: V.socialInq.map((x) => [x.label, num(x.value)]) }) });
   chart("socialViews", { fluid: true, draw: (el) => drawHBars(el, V.socialViews, { fmt: (n) => (n >= 10000 ? new Intl.NumberFormat(LOC, { notation: "compact", maximumFractionDigits: 1 }).format(n) : num(n)), tipFmt: num, unit: "views" }), table: () => ({ head: ["Platform", "Views"], num: [1], rows: V.socialViews.map((x) => [x.label, num(x.value)]) }) });
   chart("leadWeeks", {
@@ -947,7 +905,6 @@
     renderExpected(V.adv, "#advance-stats", TABLES.advance, "advance");
     renderExpected(V.fin, "#final-stats", TABLES.final, "final");
     renderProblems();
-    renderProduction();
     renderSocial();
     renderWeekly();
     renderConverted();
@@ -960,7 +917,7 @@
     $("#foot-company").textContent = C.name || "Company";
     $("#eyebrow").textContent = C.name || "Daily commercial report";
     $("#prepared-by").textContent = C.preparedBy || "—";
-    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, expected advance and final payments, problems, weekly production, social media and new paid customers.`;
+    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, expected advance and final payments, problems, social media and new paid customers.`;
     $("#foot-period").textContent = `amounts in ${CUR}`;
     $("#foot-note").textContent = D.sample
       ? "Showing example data. Clear it with Start empty in the Data sheet."
@@ -973,7 +930,7 @@
     openSheet.addEventListener("click", () => setView("sheet"));
     const empty = DATASETS.every((k) => !D[k].length);
     let msg = null;
-    if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, expected payments, problems, production and social media. Or tap Try example data to see how the report looks."];
+    if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, expected payments, problems and social media. Or tap Try example data to see how the report looks."];
     else if (D.sample) msg = [h("strong", {}, "Example data. "), "These records are made up so you can see the report. Clear them with Start empty in the Data sheet."];
     else if (LOCAL) msg = [h("strong", {}, "Saved on this device. "), "Back up regularly with Export Excel in the Data sheet."];
     el.className = "notice report-only";
@@ -1024,11 +981,6 @@
       if (key === "status" && r.status === "Solved" && !isISO(r.solvedDate)) { r.solvedDate = todayISO(); return ["solvedDate"]; }
       return [];
     } },
-    { id: "production", label: "Production", prefix: "PD-", aliases: ["weeklyproduction"], cols: [
-      col("id", "ID", "text", 84), col("date", "Date", "date", 140), col("customer", "Customer / order", "text", 200, { suggest: true }),
-      col("product", "Product", "select", 120, { options: PRODUCTS }), col("units", "Boxes / units", "number", 110),
-      col("stage", "Stage", "select", 130, { options: PROD_STAGES }), col("note", "Note", "text", 220),
-    ] },
     { id: "social", label: "Social media", prefix: "SM-", aliases: ["socialmedia"], cols: [
       col("id", "ID", "text", 84), col("week", "Week (any date in it)", "date", 170), col("platform", "Platform", "select", 120, { options: SOCIAL }),
       col("posts", "Posts", "number", 90), col("followers", "New followers", "number", 120), col("views", "Views", "number", 110), col("inquiries", "Inquiries", "number", 100),
@@ -1358,7 +1310,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     const reps = ["Sara M.", "Daniel K.", "Liya A.", "Samuel B."];
     const price = { Kitchen: [180000, 950000], Wardrobe: [60000, 320000], Vanity: [25000, 95000], "TV unit": [35000, 140000], Door: [20000, 90000], Office: [80000, 400000], Other: [10000, 60000] };
     const phone = () => `09${Math.floor(10000000 + rnd() * 89999999)}`;
-    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], production: [], social: [] };
+    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], social: [] };
     const start = addDays(weekStart(T), -77);
     let n = 0;
     for (let day = start; day <= T; day = addDays(day, 1)) {
@@ -1380,8 +1332,8 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
         d.leads.push(lead);
       }
     }
-    // paid customers -> advance payments, production, expected finals
-    let pay = 0, ef = 0, pd = 0;
+    // paid customers -> advance payments and expected finals
+    let pay = 0, ef = 0;
     for (const l of d.leads.filter((x) => x.stage === "Paid customer")) {
       const adv = round(l._value * weighted([[0.5, 3], [0.6, 2], [0.4, 1]]), 1000);
       d.payments.push({ id: `PAY-${String(++pay).padStart(4, "0")}`, date: l.paidDate, customer: l.customer, project: `${l.product} – ${l.customer}`, type: "Advance", amount: adv, method: weighted([["Bank transfer", 55], ["Telebirr", 25], ["Cash", 12], ["Cheque", 8]]), note: "" });
@@ -1391,19 +1343,6 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
         d.payments.push({ id: `PAY-${String(++pay).padStart(4, "0")}`, date: addDays(install, Math.floor(rnd() * 3)) > T ? T : addDays(install, Math.floor(rnd() * 3)), customer: l.customer, project: `${l.product} – ${l.customer}`, type: "Final", amount: finalAmt, method: "Bank transfer", note: "" });
       } else {
         d.expFinal.push({ id: `EF-${String(++ef).padStart(3, "0")}`, customer: l.customer, project: `${l.product} – ${l.customer}`, amount: finalAmt, expectedDate: install, status: install < T && rnd() < 0.4 ? "Delayed" : "Expected", note: install < T ? "Waiting for installation sign-off" : "" });
-      }
-    }
-    // production: a few batches every working day, for orders already paid
-    const orders = d.leads.filter((x) => x.stage === "Paid customer");
-    for (let day = start; day <= T && orders.length; day = addDays(day, 1)) {
-      if (parseD(day).getDay() === 0) continue;
-      const open = orders.filter((o) => o.paidDate <= day);
-      if (!open.length) continue;
-      for (let i = 0; i < 2 + Math.floor(rnd() * 2); i++) {
-        const o = pick(open.slice(-10));
-        d.production.push({ id: `PD-${String(++pd).padStart(4, "0")}`, date: day, customer: `${o.customer} – ${o.product}`, product: o.product,
-          units: o.product === "Kitchen" ? 6 + Math.floor(rnd() * 10) : 2 + Math.floor(rnd() * 6),
-          stage: weighted([["Cutting", 20], ["Edge banding", 18], ["Assembly", 24], ["Finishing", 14], ["Ready", 14], ["Installed", 10]]), note: "" });
       }
     }
     // extra payments today so "today paid" has content
@@ -1633,7 +1572,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       { label: "Expected advance (week)", value: moneyC(sum(v.adv.dueWeek)), note: v.adv.overdue.length ? `${moneyC(sum(v.adv.overdue))} overdue` : `${num(v.adv.dueWeek.length)} due`, color: v.adv.overdue.length ? PC.bad : null },
       { label: "Expected final (week)", value: moneyC(sum(v.fin.dueWeek)), note: v.fin.overdue.length ? `${moneyC(sum(v.fin.overdue))} overdue` : `${num(v.fin.dueWeek.length)} due`, color: v.fin.overdue.length ? PC.bad : null },
       { label: "Open problems", value: num(v.probOpen.length + v.probProg.length), note: `${num(v.probNewToday.length)} new today` },
-      { label: "Boxes this week", value: num(v.prodBoxes), ...(pdfDelta(v.prodBoxes, sum(v.prodLastTD, (r) => r.units)) || { note: `${num(v.prodOrders)} orders` }) },
+      { label: "Social inquiries", value: num(v.soc.inquiries.cur), ...(pdfDelta(v.soc.inquiries.cur, v.soc.inquiries.prev) || { note: "This week" }) },
     ]);
 
     // 01 Today paid
@@ -1667,25 +1606,18 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       body: probs.map((p) => [fdate(p.date), p.customer, p.problem, p.owner, p.status || "Open", p.daysOpen == null ? "—" : num(p.daysOpen), p.action]),
       empty: "No open problems." });
 
-    // 06 Production
-    k.heading("06", "Weekly production", `${num(v.prodBoxes)} boxes · ${num(v.prodOrders)} orders this week`);
-    k.table({ head: ["Date", "Customer / order", "Product", "Stage", "Boxes"], align: ["l", "l", "l", "l", "r"],
-      body: [...v.prodWeek].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((r) => [fday(r.date), r.customer, r.product, r.stage, num(Number(r.units) || 0)]),
-      foot: v.prodWeek.length ? ["Total", "", "", "", num(v.prodBoxes)] : null, empty: "No production recorded this week." });
-    k.chart({ title: "Boxes per week (last 12 weeks)", labels: v.weekLabels, values: v.prodSeries, selected: new Set([11]), height: 80 });
-
-    // 07 Social media
-    k.heading("07", "Social media", `${num(v.socialLeads)} leads from social media this week`);
+    // 06 Social media
+    k.heading("06", "Social media", `${num(v.socialLeads)} leads from social media this week`);
     const plats = [...new Set([...SOCIAL, ...v.socWeek.keys()])].filter((p) => v.socWeek.has(p) || v.socLast.has(p));
     k.table({ head: ["Platform", "Posts", "New followers", "Views", "Inquiries", "Inquiries last week"], align: ["l", "r", "r", "r", "r", "r"],
       body: plats.map((p) => { const a = v.socWeek.get(p) || { posts: 0, followers: 0, views: 0, inquiries: 0 }; const b = v.socLast.get(p) || { inquiries: 0 }; return [p, num(a.posts), num(a.followers), num(a.views), num(a.inquiries), num(b.inquiries)]; }),
       foot: plats.length ? ["Total", num(v.soc.posts.cur), num(v.soc.followers.cur), num(v.soc.views.cur), num(v.soc.inquiries.cur), num(v.soc.inquiries.prev)] : null,
       empty: "No social media numbers for this week." });
 
-    // 08 + 09 weekly leads and conversion
-    k.heading("08", "Weekly total leads", `This week ${num(v.leadSeries[11])} · last week ${num(v.leadSeries[10])}`, 200);
+    // 07 + 08 weekly leads and conversion
+    k.heading("07", "Weekly total leads", `This week ${num(v.leadSeries[11])} · last week ${num(v.leadSeries[10])}`, 200);
     k.chart({ labels: v.weekLabels, values: v.leadSeries, selected: new Set([11]), height: 90 });
-    k.heading("09", "Changed to paid customer", `${num(v.convWeek.length)} this week · ${pct(v.convRate)} of leads (12 weeks)`);
+    k.heading("08", "Changed to paid customer", `${num(v.convWeek.length)} this week · ${pct(v.convRate)} of leads (12 weeks)`);
     k.table({ head: ["Week", "Leads", "Paid customers", "Share"], align: ["l", "r", "r", "r"],
       body: v.weekLabels.map((w, i) => [w.long, num(v.leadSeries[i]), num(v.convSeries[i]), v.leadSeries[i] ? pct(v.convSeries[i] / v.leadSeries[i]) : "—"]).reverse().slice(0, 6),
       bold: (i) => i === 0 });

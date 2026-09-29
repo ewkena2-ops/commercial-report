@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Daily Commercial Report</title>
-  <meta name="description" content="Daily commercial report: payments today, leads, expected advance and final payments, problems, weekly production, social media and conversion.">
+  <meta name="description" content="Daily commercial report: payments today, leads, expected advance and final payments, problems, social media and conversion.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0b0b'/%3E%3Crect x='8' y='17' width='4' height='7' rx='1' fill='%23fff'/%3E%3Crect x='14' y='12' width='4' height='12' rx='1' fill='%23fff'/%3E%3Crect x='20' y='8' width='4' height='16' rx='1' fill='%233987e5'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,7 +35,6 @@
         <a href="#advance" data-icon="arrowInBox">Expected advance</a>
         <a href="#final" data-icon="flag">Expected final</a>
         <a href="#problems" data-icon="alertTri">Problems</a>
-        <a href="#production" data-icon="box">Weekly production</a>
         <a href="#social" data-icon="megaphone">Social media</a>
         <a href="#weekly-leads" data-icon="bars">Weekly total leads</a>
         <a href="#converted" data-icon="userCheck">Paid customers</a>
@@ -140,20 +139,9 @@
           <article class="card table-card"><header class="card-head"><div><h3>Problem list</h3><p class="card-sub">Oldest open problem first</p></div></header><div id="problem-table"></div></article>
         </section>
 
-        <!-- 06 WEEKLY PRODUCTION -->
-        <section class="section report-only" id="production" aria-labelledby="h-production">
-          <div class="section-head"><span class="section-num">06</span><div><h2 id="h-production">Weekly production</h2><p>Cabinet boxes and units produced this week, by order and stage.</p></div></div>
-          <div class="card stat-strip" id="production-stats"></div>
-          <div class="grid grid-2">
-            <article class="card chart-card" data-chart="prodWeeks" data-title="Boxes produced per week" data-sub="Last 12 weeks · this week highlighted"></article>
-            <article class="card chart-card" data-chart="prodStages" data-title="This week by stage" data-sub="Boxes at each production stage" data-hb></article>
-          </div>
-          <article class="card table-card"><header class="card-head"><div><h3>Production this week</h3><p class="card-sub">One row per order or batch</p></div></header><div id="production-table"></div></article>
-        </section>
-
-        <!-- 07 SOCIAL MEDIA -->
+        <!-- 06 SOCIAL MEDIA -->
         <section class="section report-only" id="social" aria-labelledby="h-social">
-          <div class="section-head"><span class="section-num">07</span><div><h2 id="h-social">Social media</h2><p>Posts, followers, views and inquiries this week, per platform.</p></div></div>
+          <div class="section-head"><span class="section-num">06</span><div><h2 id="h-social">Social media</h2><p>Posts, followers, views and inquiries this week, per platform.</p></div></div>
           <div class="card stat-strip" id="social-stats"></div>
           <div class="grid grid-2">
             <article class="card chart-card" data-chart="socialInq" data-title="Inquiries by platform" data-sub="Messages and calls from each platform this week" data-hb></article>
@@ -162,16 +150,16 @@
           <article class="card table-card"><header class="card-head"><div><h3>This week per platform</h3><p class="card-sub">Compared with last week</p></div></header><div id="social-table"></div></article>
         </section>
 
-        <!-- 08 WEEKLY TOTAL LEADS -->
+        <!-- 07 WEEKLY TOTAL LEADS -->
         <section class="section report-only" id="weekly-leads" aria-labelledby="h-weekly-leads">
-          <div class="section-head"><span class="section-num">08</span><div><h2 id="h-weekly-leads">Weekly total leads</h2><p>How many new leads we get each week.</p></div></div>
+          <div class="section-head"><span class="section-num">07</span><div><h2 id="h-weekly-leads">Weekly total leads</h2><p>How many new leads we get each week.</p></div></div>
           <div class="card stat-strip" id="weekly-stats"></div>
           <article class="card chart-card" data-chart="leadWeeks" data-title="New leads per week" data-sub="Last 12 weeks · this week highlighted"></article>
         </section>
 
-        <!-- 09 CHANGED TO PAID CUSTOMER -->
+        <!-- 08 CHANGED TO PAID CUSTOMER -->
         <section class="section report-only" id="converted" aria-labelledby="h-converted">
-          <div class="section-head"><span class="section-num">09</span><div><h2 id="h-converted">Changed to paid customer</h2><p>How many leads became paying customers.</p></div></div>
+          <div class="section-head"><span class="section-num">08</span><div><h2 id="h-converted">Changed to paid customer</h2><p>How many leads became paying customers.</p></div></div>
           <div class="card stat-strip" id="convert-stats"></div>
           <article class="card chart-card" data-chart="convertWeeks" data-title="New paid customers per week" data-sub="Last 12 weeks · this week highlighted"></article>
           <article class="card table-card"><header class="card-head"><div><h3>Became paid customers this week</h3><p class="card-sub">Leads marked "Paid customer" with a paid date this week</p></div></header><div id="convert-table"></div></article>

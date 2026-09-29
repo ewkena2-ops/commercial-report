@@ -1,23 +1,22 @@
 # Daily Commercial Report
 
-A daily commercial report for a kitchen & cabinet business, built around nine questions:
+A daily commercial report for a kitchen & cabinet business, built around eight questions:
 
 1. **Today paid**: money customers paid today, each day this week, split into advance / final / other
 2. **Leads**: new leads today and this week, by source and stage
 3. **Expected advance**: deposits customers agreed to pay, marked overdue / due today / this week
 4. **Expected final**: final payments expected after installation, with the same markers
 5. **Problems**: open problems, who is responsible, days open
-6. **Weekly production**: boxes produced this week, by stage, against the last 12 weeks
-7. **Social media**: posts, new followers, views and inquiries per platform, compared with last week
-8. **Weekly total leads**: leads per week over the last 12 weeks
-9. **Changed to paid customer**: leads that became paying customers, and the conversion rate
+6. **Social media**: posts, new followers, views and inquiries per platform, compared with last week
+7. **Weekly total leads**: leads per week over the last 12 weeks
+8. **Changed to paid customer**: leads that became paying customers, and the conversion rate
 
 **Live:** https://ewkena2-ops.github.io/commercial-report/
 
 ## Using it
 
 - Pick any **date** at the top (arrows move one day). The week runs Monday to Sunday.
-- **Data sheet** holds the records, one tab per topic: Payments received, Leads, Expected advance, Expected final, Problems, Production, Social media. Type rows directly, or **Import Excel / CSV**.
+- **Data sheet** holds the records, one tab per topic: Payments received, Leads, Expected advance, Expected final, Problems, Social media. Type rows directly, or **Import Excel / CSV**.
   - Setting a lead's stage to *Paid customer* fills in the paid date. Setting a problem to *Solved* fills in the solved date.
   - **Try example data** fills the sheet with made-up records so you can see the report; **Start empty** clears it.
 - **Download PDF** makes a 3 to 4 page report for the selected date. Amharic text is supported through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).

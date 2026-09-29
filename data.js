@@ -30,9 +30,6 @@ window.REPORT_DATA = {
   // status: Open | In progress | Solved
   problems: [],
 
-  // stage: Cutting | Edge banding | Assembly | Finishing | Ready | Installed
-  production: [],
-
   // one row per platform per week. week = any date in that week
   social: [],
 };
