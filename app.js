@@ -44,6 +44,7 @@
     arrowInBox: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>',
     flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     box: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+    ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2"/>',
     megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
     bars: '<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6" rx="1"/><rect x="12" y="8" width="3" height="10" rx="1"/><rect x="17" y="5" width="3" height="13" rx="1"/>',
     userCheck: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m16 11 2 2 4-4"/>',
@@ -80,11 +81,12 @@
   const METHODS = ["Bank transfer", "Telebirr", "Cash", "Cheque"];
   const EXP_STATUS = ["Expected", "Delayed", "Received", "Cancelled"];
   const PROB_STATUS = ["Open", "In progress", "Solved"];
+  const MEAS_STATUS = ["Taken", "Scheduled", "Cancelled"];
 
   /* ---------- data store ---------- */
   const SAMPLE = window.REPORT_DATA || { company: {} };
   const STORE_KEY = "cr-daily-v1";
-  const DATASETS = ["leads", "payments", "expAdvance", "expFinal", "problems", "social"];
+  const DATASETS = ["leads", "measurements", "payments", "expAdvance", "expFinal", "problems", "social"];
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   function normalize(d) {
@@ -195,7 +197,23 @@
     })).sort((a, b) => b.value - a.value);
     v.leadStages = LEAD_STAGES.map((st) => ({ label: st, value: v.leadsWeek.filter((l) => l.stage === st).length, muted: st === "Lost" }));
 
-    // 03 / 04 expected payments
+    // 03 pre-measurement
+    v.meas = D.measurements.map((m) => {
+      const st = m.status || "Scheduled";
+      let disp = st;
+      if (st === "Scheduled") disp = !isISO(m.date) ? "No date" : m.date < T ? "Missed" : m.date === T ? "Due today" : "Scheduled";
+      return { ...m, disp };
+    });
+    const taken = v.meas.filter((m) => m.status === "Taken");
+    v.measToday = taken.filter((m) => m.date === T);
+    v.measWeek = taken.filter((m) => within(m.date, ws, T));
+    v.measLastTD = taken.filter((m) => within(m.date, lws, lwT));
+    v.measUpcoming = v.meas.filter((m) => (m.status || "Scheduled") === "Scheduled" && isISO(m.date) && m.date >= T).sort((a, b) => a.date.localeCompare(b.date));
+    v.measMissed = v.meas.filter((m) => m.disp === "Missed");
+    v.measSeries = series12(taken, (m) => m.date);
+    v.measProducts = [...groupSum(v.measWeek, (m) => m.product, () => 1)].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+
+    // 04 / 05 expected payments
     const expView = (rows, payType) => {
       const list = rows.map((r) => {
         const st = r.status || "Expected";
@@ -222,7 +240,7 @@
     v.adv = expView(D.expAdvance, "Advance");
     v.fin = expView(D.expFinal, "Final");
 
-    // 05 problems
+    // 06 problems
     v.problems = D.problems.filter((p) => !isISO(p.date) || p.date <= T).map((p) => ({
       ...p,
       daysOpen: p.status === "Solved"
@@ -234,7 +252,7 @@
     v.probNewToday = v.problems.filter((p) => p.date === T);
     v.probSolvedWeek = v.problems.filter((p) => p.status === "Solved" && within(p.solvedDate, ws, T));
 
-    // 06 social media
+    // 07 social media
     const socFor = (w) => D.social.filter((r) => isISO(r.week) && weekStart(r.week) === w);
     const agg = (rows) => {
       const m = new Map();
@@ -252,10 +270,10 @@
     v.soc = Object.fromEntries(["posts", "followers", "views", "inquiries"].map((k) => [k, { cur: tot(v.socWeek, k), prev: tot(v.socLast, k) }]));
     v.socialLeads = v.leadsWeek.filter((l) => SOCIAL.includes(l.source)).length;
 
-    // 07 weekly leads
+    // 08 weekly leads
     v.leadSeries = series12(D.leads, (l) => l.date);
 
-    // 08 converted
+    // 09 converted
     const paidDateOf = (l) => (isISO(l.paidDate) ? l.paidDate : l.date);
     v.paidDateOf = paidDateOf;
     const conv = D.leads.filter((l) => l.stage === "Paid customer");
@@ -297,7 +315,7 @@
   const STATUS = {
     Received: "good", "Paid customer": "good", Solved: "good", Installed: "good", Ready: "good",
     "Due today": "warning", "This week": "warning", "In progress": "warning", Expected: "warning",
-    Delayed: "serious", Open: "serious", Overdue: "critical",
+    Delayed: "serious", Open: "serious", Overdue: "critical", Missed: "critical", Taken: "good", Scheduled: "warning",
     Lost: "neutral", Later: "neutral", Cancelled: "neutral", "No date": "neutral",
   };
   const STATUS_ICON = { good: "check", warning: "clock", serious: "alertTri", critical: "alertCircle", neutral: "circle" };
@@ -700,6 +718,24 @@
         ],
         emptyTitle: "No leads this week", emptyText: "New leads you add appear here.",
       }),
+      measure: new DataTable($("#measure-table"), {
+        name: "pre-measurements", search: ["customer", "phone", "location", "measuredBy", "note"], placeholder: "Search customer, phone or site",
+        tabs: { key: "status", label: "Show", options: [
+          { value: "Week", label: "Taken this week", match: (r) => r.status === "Taken" && within(r.date, V.ws, V.T) },
+          { value: "Scheduled", label: "Scheduled & missed", match: (r) => (r.status || "Scheduled") === "Scheduled" },
+          { value: "All", label: "All" }] },
+        sort: { key: "date", dir: -1 },
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fday(r.date), cls: "muted" },
+          { key: "customer", label: "Customer", cell: (r) => twoLine(r.customer, r.phone) },
+          { key: "location", label: "Location / site" },
+          { key: "product", label: "Product" },
+          { key: "measuredBy", label: "Measured by" },
+          { key: "disp", label: "Status", cell: (r) => badge(r.disp), csv: (r) => r.disp },
+          { key: "note", label: "Note", cls: "wrap muted" },
+        ],
+        emptyTitle: "No pre-measurements here", emptyText: "Add them in the Data sheet (Pre-measurement tab).",
+      }),
       advance: new DataTable($("#advance-table"), expCfg("expected-advance")),
       final: new DataTable($("#final-table"), expCfg("expected-final")),
       problems: new DataTable($("#problem-table"), {
@@ -757,7 +793,7 @@
     $("#kpi-tiles").replaceChildren(
       tile("New leads today", num(v.leadsToday.length), `${num(v.leadsWeek.length)} this week`),
       tile("New paid customers", num(v.convWeek.length), compare(v.convWeek.length, v.convLastTD.length) || "This week"),
-      tile("Social media inquiries", num(v.soc.inquiries.cur), compare(v.soc.inquiries.cur, v.soc.inquiries.prev) || `${num(v.socialLeads)} leads from social`),
+      tile("Pre-measurements this week", num(v.measWeek.length), v.measMissed.length ? h("span", { class: "delta bad" }, icon("alertCircle"), `${num(v.measMissed.length)} missed`) : `${num(v.measToday.length)} today · ${num(v.measUpcoming.length)} scheduled`),
       tile("Expected advance", moneyC(sum(v.adv.dueWeek)), expFoot(v.adv), money(sum(v.adv.dueWeek))),
       tile("Expected final", moneyC(sum(v.fin.dueWeek)), expFoot(v.fin), money(sum(v.fin.dueWeek))),
       tile("Open problems", num(v.probOpen.length + v.probProg.length), v.probNewToday.length ? `${num(v.probNewToday.length)} new today` : `${num(v.probSolvedWeek.length)} solved this week`));
@@ -786,6 +822,18 @@
       { label: "Top source this week", value: top ? top.label : "—", foot: top ? `${num(top.value)} leads` : "No leads yet" },
     ]);
     TABLES.leads.setRows(v.leadsWeek);
+  }
+
+  function renderMeasure() {
+    const v = V;
+    const next = v.measUpcoming[0];
+    statStrip($("#measure-stats"), [
+      { label: "Taken today", value: num(v.measToday.length), foot: fday(v.T) },
+      { label: "Taken this week", value: num(v.measWeek.length), foot: compare(v.measWeek.length, v.measLastTD.length) || `${fday(v.ws)} – ${fday(v.T)}` },
+      { label: "Scheduled", value: num(v.measUpcoming.length), foot: next ? `Next: ${fday(next.date)}, ${next.customer || ""}` : "Nothing booked" },
+      { label: "Missed", value: num(v.measMissed.length), foot: v.measMissed.length ? h("span", { class: "delta bad" }, icon("alertCircle"), "Date passed, not taken") : "None" },
+    ]);
+    TABLES.measure.setRows(v.meas);
   }
 
   function renderExpected(x, statsSel, table, word) {
@@ -867,6 +915,11 @@
   chart("paidTypes", { fluid: true, draw: (el) => drawHBars(el, V.paidTypes, { fmt: moneyC, tipFmt: money, unit: "paid" }), table: () => ({ head: ["Type", "Paid", "Payments"], num: [1, 2], rows: V.paidTypes.map((t) => [t.label, money(t.value), t.extra[0].value]) }) });
   chart("leadSources", { fluid: true, draw: (el) => drawHBars(el, V.leadSources, { unit: "leads" }), table: () => ({ head: ["Source", "Leads", "Became paid"], num: [1, 2], rows: V.leadSources.map((x) => [x.label, num(x.value), x.extra[0].value]) }) });
   chart("leadStages", { fluid: true, draw: (el) => drawHBars(el, V.leadStages, { unit: "leads" }), table: () => ({ head: ["Stage", "Leads"], num: [1], rows: V.leadStages.map((x) => [x.label, num(x.value)]) }) });
+  chart("measWeeks", {
+    draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "Pre-measurements taken", key: "in", values: V.measSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "Pre-measurements taken per week" }),
+    table: () => ({ head: ["Week", "Taken"], num: [1], rows: V.weekLabels.map((w, i) => [w.long, num(V.measSeries[i])]) }),
+  });
+  chart("measProducts", { fluid: true, draw: (el) => drawHBars(el, V.measProducts, { unit: "measurements" }), table: () => ({ head: ["Product", "Taken"], num: [1], rows: V.measProducts.map((x) => [x.label, num(x.value)]) }) });
   chart("socialInq", { fluid: true, draw: (el) => drawHBars(el, V.socialInq, { unit: "inquiries" }), table: () => ({ head: ["Platform", "Inquiries"], num: [1], rows: V.socialInq.map((x) => [x.label, num(x.value)]) }) });
   chart("socialViews", { fluid: true, draw: (el) => drawHBars(el, V.socialViews, { fmt: (n) => (n >= 10000 ? new Intl.NumberFormat(LOC, { notation: "compact", maximumFractionDigits: 1 }).format(n) : num(n)), tipFmt: num, unit: "views" }), table: () => ({ head: ["Platform", "Views"], num: [1], rows: V.socialViews.map((x) => [x.label, num(x.value)]) }) });
   chart("leadWeeks", {
@@ -902,6 +955,7 @@
     renderGlance();
     renderPaid();
     renderLeads();
+    renderMeasure();
     renderExpected(V.adv, "#advance-stats", TABLES.advance, "advance");
     renderExpected(V.fin, "#final-stats", TABLES.final, "final");
     renderProblems();
@@ -917,7 +971,7 @@
     $("#foot-company").textContent = C.name || "Company";
     $("#eyebrow").textContent = C.name || "Daily commercial report";
     $("#prepared-by").textContent = C.preparedBy || "—";
-    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, expected advance and final payments, problems, social media and new paid customers.`;
+    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, pre-measurements, expected advance and final payments, problems, social media and new paid customers.`;
     $("#foot-period").textContent = `amounts in ${CUR}`;
     $("#foot-note").textContent = D.sample
       ? "Showing example data. Clear it with Start empty in the Data sheet."
@@ -930,7 +984,7 @@
     openSheet.addEventListener("click", () => setView("sheet"));
     const empty = DATASETS.every((k) => !D[k].length);
     let msg = null;
-    if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, expected payments, problems and social media. Or tap Try example data to see how the report looks."];
+    if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, pre-measurements, expected payments, problems and social media. Or tap Try example data to see how the report looks."];
     else if (D.sample) msg = [h("strong", {}, "Example data. "), "These records are made up so you can see the report. Clear them with Start empty in the Data sheet."];
     else if (LOCAL) msg = [h("strong", {}, "Saved on this device. "), "Back up regularly with Export Excel in the Data sheet."];
     el.className = "notice report-only";
@@ -971,6 +1025,12 @@
       if (key === "stage" && r.stage === "Paid customer" && !isISO(r.paidDate)) { r.paidDate = todayISO(); return ["paidDate"]; }
       return [];
     } },
+    { id: "measurements", label: "Pre-measurement", prefix: "MS-", aliases: ["premeasurement", "premeasurements", "measurement", "measurements", "sitemeasurement"], cols: [
+      col("id", "ID", "text", 90), col("date", "Date", "date", 140), col("customer", "Customer", "text", 170, { suggest: true }),
+      col("phone", "Phone", "text", 130), col("location", "Location / site", "text", 170, { suggest: true }),
+      col("product", "Product", "select", 120, { options: PRODUCTS }), col("measuredBy", "Measured by", "text", 130, { suggest: true }),
+      col("status", "Status", "select", 120, { options: MEAS_STATUS }), col("note", "Note", "text", 220),
+    ] },
     expSheet("expAdvance", "Expected advance", "EA-", ["expectedadvance", "advance", "expectadvance"]),
     expSheet("expFinal", "Expected final", "EF-", ["expectedfinal", "final", "expectfinal"]),
     { id: "problems", label: "Problems", prefix: "PR-", aliases: ["problem"], cols: [
@@ -1310,7 +1370,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     const reps = ["Sara M.", "Daniel K.", "Liya A.", "Samuel B."];
     const price = { Kitchen: [180000, 950000], Wardrobe: [60000, 320000], Vanity: [25000, 95000], "TV unit": [35000, 140000], Door: [20000, 90000], Office: [80000, 400000], Other: [10000, 60000] };
     const phone = () => `09${Math.floor(10000000 + rnd() * 89999999)}`;
-    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], social: [] };
+    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], social: [], measurements: [] };
     const start = addDays(weekStart(T), -77);
     let n = 0;
     for (let day = start; day <= T; day = addDays(day, 1)) {
@@ -1351,6 +1411,22 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       if (i === 2) return;
       d.payments.push({ id: `PAY-${String(++pay).padStart(4, "0")}`, date: T, customer: l.customer, project: `${l.product} – ${l.customer}`, type: i ? "Other" : "Advance", amount: round(l._value * (i ? 0.1 : 0.5), 1000), method: i ? "Cash" : "Telebirr", note: i ? "Design fee" : "" });
     });
+    // pre-measurements for leads that reached a site visit
+    const areas = ["Bole", "CMC", "Ayat", "Summit", "Sarbet", "Old Airport", "Gerji", "Lebu", "Kazanchis", "Megenagna"];
+    const measurers = ["Yonas T.", "Kaleb M."];
+    for (const l of d.leads) {
+      const age = daysBetween(l.date, T);
+      const reached = ["Site visit", "Quotation", "Paid customer"].includes(l.stage) || (l.stage === "Lost" && rnd() < 0.4);
+      const recent = age < 10 && (l.stage === "New" || l.stage === "Contacted") && rnd() < 0.7;
+      if (!reached && !recent) continue;
+      const date = addDays(l.date, 1 + Math.floor(rnd() * 5));
+      let status = date <= T ? "Taken" : "Scheduled";
+      if (recent && date <= T && rnd() < 0.3) status = "Scheduled"; // booked but not done yet
+      d.measurements.push({ id: "", date, customer: l.customer, phone: l.phone, location: pick(areas), product: l.product, measuredBy: pick(measurers), status, note: status === "Scheduled" && date < T ? "Customer not home, call again" : "" });
+    }
+    d.measurements.sort((a, b) => a.date.localeCompare(b.date));
+    d.measurements.forEach((m, i) => (m.id = `MS-${String(i + 1).padStart(4, "0")}`));
+
     // expected advances from quotations
     let ea = 0;
     for (const l of d.leads.filter((x) => x.stage === "Quotation").slice(-14)) {
@@ -1572,7 +1648,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       { label: "Expected advance (week)", value: moneyC(sum(v.adv.dueWeek)), note: v.adv.overdue.length ? `${moneyC(sum(v.adv.overdue))} overdue` : `${num(v.adv.dueWeek.length)} due`, color: v.adv.overdue.length ? PC.bad : null },
       { label: "Expected final (week)", value: moneyC(sum(v.fin.dueWeek)), note: v.fin.overdue.length ? `${moneyC(sum(v.fin.overdue))} overdue` : `${num(v.fin.dueWeek.length)} due`, color: v.fin.overdue.length ? PC.bad : null },
       { label: "Open problems", value: num(v.probOpen.length + v.probProg.length), note: `${num(v.probNewToday.length)} new today` },
-      { label: "Social inquiries", value: num(v.soc.inquiries.cur), ...(pdfDelta(v.soc.inquiries.cur, v.soc.inquiries.prev) || { note: "This week" }) },
+      { label: "Pre-measurements (week)", value: num(v.measWeek.length), note: v.measMissed.length ? `${num(v.measMissed.length)} missed` : `${num(v.measUpcoming.length)} scheduled`, color: v.measMissed.length ? PC.bad : null },
     ]);
 
     // 01 Today paid
@@ -1589,8 +1665,17 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       empty: "No leads this week." });
     if (v.leadSources.length) k.line(`By source this week: ${v.leadSources.map((x) => `${x.label} ${x.value}`).join(" · ")}`);
 
-    // 03 / 04 expected
-    for (const [no, title, x] of [["03", "Expected advance", v.adv], ["04", "Expected final", v.fin]]) {
+    // 03 Pre-measurement
+    k.heading("03", "Pre-measurement", `${num(v.measToday.length)} today · ${num(v.measWeek.length)} this week · ${num(v.measUpcoming.length)} scheduled · ${num(v.measMissed.length)} missed`);
+    const mrows = [...v.meas.filter((m) => m.status === "Taken" && within(m.date, v.ws, v.T)), ...v.meas.filter((m) => (m.status || "Scheduled") === "Scheduled")]
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    k.table({ head: ["Date", "Customer", "Phone", "Location / site", "Product", "Measured by", "Status"], align: ["l", "l", "l", "l", "l", "l", "l"], fontSize: 7.5,
+      body: mrows.map((m) => [fday(m.date), m.customer, m.phone, m.location, m.product, m.measuredBy, m.disp]),
+      color: (ri, ci) => (ci === 6 && mrows[ri] && mrows[ri].disp === "Missed" ? PC.bad : null),
+      empty: "No pre-measurements taken this week and none scheduled." });
+
+    // 04 / 05 expected
+    for (const [no, title, x] of [["04", "Expected advance", v.adv], ["05", "Expected final", v.fin]]) {
       const rows = expRows(x);
       k.heading(no, title, `Open ${money(sum(x.open))} · overdue ${money(sum(x.overdue))} · received this week ${money(sum(x.receivedWeek))}`);
       k.table({ head: ["Expected", "Customer", "Project / order", "Status", "When", "Amount"], align: ["l", "l", "l", "l", "l", "r"], fontSize: 7.5,
@@ -1598,26 +1683,26 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
         foot: rows.length ? ["Total", "", "", "", "", money(sum(rows))] : null, color: expColor(rows), empty: "No open expected payments." });
     }
 
-    // 05 Problems
+    // 06 Problems
     const probs = v.problems.filter((p) => p.status !== "Solved").sort((a, b) => (b.daysOpen ?? 0) - (a.daysOpen ?? 0));
-    k.heading("05", "Problems", `${num(v.probOpen.length)} open · ${num(v.probProg.length)} in progress · ${num(v.probSolvedWeek.length)} solved this week`);
+    k.heading("06", "Problems", `${num(v.probOpen.length)} open · ${num(v.probProg.length)} in progress · ${num(v.probSolvedWeek.length)} solved this week`);
     k.table({ head: ["Date", "Customer / project", "Problem", "Responsible", "Status", "Days", "Action"], align: ["l", "l", "l", "l", "l", "r", "l"], fontSize: 7.5,
       widths: [52, 82, 0, 62, 54, 30, 0],
       body: probs.map((p) => [fdate(p.date), p.customer, p.problem, p.owner, p.status || "Open", p.daysOpen == null ? "—" : num(p.daysOpen), p.action]),
       empty: "No open problems." });
 
-    // 06 Social media
-    k.heading("06", "Social media", `${num(v.socialLeads)} leads from social media this week`);
+    // 07 Social media
+    k.heading("07", "Social media", `${num(v.socialLeads)} leads from social media this week`);
     const plats = [...new Set([...SOCIAL, ...v.socWeek.keys()])].filter((p) => v.socWeek.has(p) || v.socLast.has(p));
     k.table({ head: ["Platform", "Posts", "New followers", "Views", "Inquiries", "Inquiries last week"], align: ["l", "r", "r", "r", "r", "r"],
       body: plats.map((p) => { const a = v.socWeek.get(p) || { posts: 0, followers: 0, views: 0, inquiries: 0 }; const b = v.socLast.get(p) || { inquiries: 0 }; return [p, num(a.posts), num(a.followers), num(a.views), num(a.inquiries), num(b.inquiries)]; }),
       foot: plats.length ? ["Total", num(v.soc.posts.cur), num(v.soc.followers.cur), num(v.soc.views.cur), num(v.soc.inquiries.cur), num(v.soc.inquiries.prev)] : null,
       empty: "No social media numbers for this week." });
 
-    // 07 + 08 weekly leads and conversion
-    k.heading("07", "Weekly total leads", `This week ${num(v.leadSeries[11])} · last week ${num(v.leadSeries[10])}`, 200);
+    // 08 + 09 weekly leads and conversion
+    k.heading("08", "Weekly total leads", `This week ${num(v.leadSeries[11])} · last week ${num(v.leadSeries[10])}`, 200);
     k.chart({ labels: v.weekLabels, values: v.leadSeries, selected: new Set([11]), height: 90 });
-    k.heading("08", "Changed to paid customer", `${num(v.convWeek.length)} this week · ${pct(v.convRate)} of leads (12 weeks)`);
+    k.heading("09", "Changed to paid customer", `${num(v.convWeek.length)} this week · ${pct(v.convRate)} of leads (12 weeks)`);
     k.table({ head: ["Week", "Leads", "Paid customers", "Share"], align: ["l", "r", "r", "r"],
       body: v.weekLabels.map((w, i) => [w.long, num(v.leadSeries[i]), num(v.convSeries[i]), v.leadSeries[i] ? pct(v.convSeries[i] / v.leadSeries[i]) : "—"]).reverse().slice(0, 6),
       bold: (i) => i === 0 });

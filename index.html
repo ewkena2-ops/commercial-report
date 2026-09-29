@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Daily Commercial Report</title>
-  <meta name="description" content="Daily commercial report: payments today, leads, expected advance and final payments, problems, social media and conversion.">
+  <meta name="description" content="Daily commercial report: payments today, leads, pre-measurements, expected advance and final payments, problems, social media and conversion.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0b0b'/%3E%3Crect x='8' y='17' width='4' height='7' rx='1' fill='%23fff'/%3E%3Crect x='14' y='12' width='4' height='12' rx='1' fill='%23fff'/%3E%3Crect x='20' y='8' width='4' height='16' rx='1' fill='%233987e5'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,6 +32,7 @@
       <nav class="nav" id="nav">
         <a href="#paid" data-icon="cash">Today paid</a>
         <a href="#leads" data-icon="leads">Leads</a>
+        <a href="#measure" data-icon="ruler">Pre-measurement</a>
         <a href="#advance" data-icon="arrowInBox">Expected advance</a>
         <a href="#final" data-icon="flag">Expected final</a>
         <a href="#problems" data-icon="alertTri">Problems</a>
@@ -118,30 +119,41 @@
           <article class="card table-card"><header class="card-head"><div><h3>Leads this week</h3><p class="card-sub">Newest first</p></div></header><div id="leads-table"></div></article>
         </section>
 
-        <!-- 03 EXPECTED ADVANCE -->
+        <!-- 03 PRE-MEASUREMENT -->
+        <section class="section report-only" id="measure" aria-labelledby="h-measure">
+          <div class="section-head"><span class="section-num">03</span><div><h2 id="h-measure">Pre-measurement</h2><p>Site measurements taken before the quotation, and the ones still booked.</p></div></div>
+          <div class="card stat-strip" id="measure-stats"></div>
+          <div class="grid grid-2">
+            <article class="card chart-card" data-chart="measWeeks" data-title="Pre-measurements taken per week" data-sub="Last 12 weeks · this week highlighted"></article>
+            <article class="card chart-card" data-chart="measProducts" data-title="This week by product" data-sub="What customers want measured" data-hb></article>
+          </div>
+          <article class="card table-card"><header class="card-head"><div><h3>Pre-measurement list</h3><p class="card-sub">Missed = booked date has passed but not marked Taken</p></div></header><div id="measure-table"></div></article>
+        </section>
+
+        <!-- 04 EXPECTED ADVANCE -->
         <section class="section report-only" id="advance" aria-labelledby="h-advance">
-          <div class="section-head"><span class="section-num">03</span><div><h2 id="h-advance">Expected advance</h2><p>Deposits customers have agreed to pay, and when.</p></div></div>
+          <div class="section-head"><span class="section-num">04</span><div><h2 id="h-advance">Expected advance</h2><p>Deposits customers have agreed to pay, and when.</p></div></div>
           <div class="card stat-strip" id="advance-stats"></div>
           <article class="card table-card"><header class="card-head"><div><h3>Expected advance payments</h3><p class="card-sub">Overdue first, then by expected date</p></div></header><div id="advance-table"></div></article>
         </section>
 
-        <!-- 04 EXPECTED FINAL -->
+        <!-- 05 EXPECTED FINAL -->
         <section class="section report-only" id="final" aria-labelledby="h-final">
-          <div class="section-head"><span class="section-num">04</span><div><h2 id="h-final">Expected final</h2><p>Final payments due after delivery and installation.</p></div></div>
+          <div class="section-head"><span class="section-num">05</span><div><h2 id="h-final">Expected final</h2><p>Final payments due after delivery and installation.</p></div></div>
           <div class="card stat-strip" id="final-stats"></div>
           <article class="card table-card"><header class="card-head"><div><h3>Expected final payments</h3><p class="card-sub">Overdue first, then by expected date</p></div></header><div id="final-table"></div></article>
         </section>
 
-        <!-- 05 PROBLEMS -->
+        <!-- 06 PROBLEMS -->
         <section class="section report-only" id="problems" aria-labelledby="h-problems">
-          <div class="section-head"><span class="section-num">05</span><div><h2 id="h-problems">Problems</h2><p>Customer complaints, delays and production issues, and who is solving them.</p></div></div>
+          <div class="section-head"><span class="section-num">06</span><div><h2 id="h-problems">Problems</h2><p>Customer complaints, delays and production issues, and who is solving them.</p></div></div>
           <div class="card stat-strip" id="problem-stats"></div>
           <article class="card table-card"><header class="card-head"><div><h3>Problem list</h3><p class="card-sub">Oldest open problem first</p></div></header><div id="problem-table"></div></article>
         </section>
 
-        <!-- 06 SOCIAL MEDIA -->
+        <!-- 07 SOCIAL MEDIA -->
         <section class="section report-only" id="social" aria-labelledby="h-social">
-          <div class="section-head"><span class="section-num">06</span><div><h2 id="h-social">Social media</h2><p>Posts, followers, views and inquiries this week, per platform.</p></div></div>
+          <div class="section-head"><span class="section-num">07</span><div><h2 id="h-social">Social media</h2><p>Posts, followers, views and inquiries this week, per platform.</p></div></div>
           <div class="card stat-strip" id="social-stats"></div>
           <div class="grid grid-2">
             <article class="card chart-card" data-chart="socialInq" data-title="Inquiries by platform" data-sub="Messages and calls from each platform this week" data-hb></article>
@@ -150,16 +162,16 @@
           <article class="card table-card"><header class="card-head"><div><h3>This week per platform</h3><p class="card-sub">Compared with last week</p></div></header><div id="social-table"></div></article>
         </section>
 
-        <!-- 07 WEEKLY TOTAL LEADS -->
+        <!-- 08 WEEKLY TOTAL LEADS -->
         <section class="section report-only" id="weekly-leads" aria-labelledby="h-weekly-leads">
-          <div class="section-head"><span class="section-num">07</span><div><h2 id="h-weekly-leads">Weekly total leads</h2><p>How many new leads we get each week.</p></div></div>
+          <div class="section-head"><span class="section-num">08</span><div><h2 id="h-weekly-leads">Weekly total leads</h2><p>How many new leads we get each week.</p></div></div>
           <div class="card stat-strip" id="weekly-stats"></div>
           <article class="card chart-card" data-chart="leadWeeks" data-title="New leads per week" data-sub="Last 12 weeks · this week highlighted"></article>
         </section>
 
-        <!-- 08 CHANGED TO PAID CUSTOMER -->
+        <!-- 09 CHANGED TO PAID CUSTOMER -->
         <section class="section report-only" id="converted" aria-labelledby="h-converted">
-          <div class="section-head"><span class="section-num">08</span><div><h2 id="h-converted">Changed to paid customer</h2><p>How many leads became paying customers.</p></div></div>
+          <div class="section-head"><span class="section-num">09</span><div><h2 id="h-converted">Changed to paid customer</h2><p>How many leads became paying customers.</p></div></div>
           <div class="card stat-strip" id="convert-stats"></div>
           <article class="card chart-card" data-chart="convertWeeks" data-title="New paid customers per week" data-sub="Last 12 weeks · this week highlighted"></article>
           <article class="card table-card"><header class="card-head"><div><h3>Became paid customers this week</h3><p class="card-sub">Leads marked "Paid customer" with a paid date this week</p></div></header><div id="convert-table"></div></article>

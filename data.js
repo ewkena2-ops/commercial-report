@@ -20,6 +20,9 @@ window.REPORT_DATA = {
   // stage: New | Contacted | Site visit | Quotation | Paid customer | Lost
   leads: [],
 
+  // site measurements before the quotation. status: Taken | Scheduled | Cancelled
+  measurements: [],
+
   // money customers paid us. type: Advance | Final | Other
   payments: [],
 
