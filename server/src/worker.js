@@ -92,9 +92,9 @@ async function signup(env, dept, body) {
   const email = cleanEmail(body.email), pw = String(body.password || ""), name = String(body.name || "").trim().slice(0, 80);
   if (!EMAIL_RE.test(email)) throw httpErr(400, "Type a valid email address.");
   if (pw.length < 8) throw httpErr(400, "Choose a password of at least 8 characters.");
-  const member = await first(env, "SELECT 1 AS x FROM members WHERE email = ? LIMIT 1", email);
+  // Only the first account of a department (before it has an owner) is created here; the owner makes every other login
   const owner = await first(env, "SELECT 1 AS x FROM members WHERE dept = ? AND role = 'owner' LIMIT 1", dept);
-  if (!member && owner) throw httpErr(403, "This email has no access yet. Ask the owner to add it in Team & access first.");
+  if (owner) throw httpErr(403, "Logins are made by the owner in Team & access.");
   if (await first(env, "SELECT 1 AS x FROM users WHERE email = ?", email)) throw httpErr(409, "An account with this email already exists. Sign in instead.");
   await env.DB.prepare("INSERT INTO users (email, name, pass, created_at) VALUES (?, ?, ?, ?)").bind(email, name || null, await hashPassword(pw), new Date().toISOString()).run();
   return { token: await newSession(env, email), me: publicMe(await meFromEmail(env, dept, email)) };
@@ -177,6 +177,20 @@ async function sync(env, dept, me, body) {
   if (stmts.length) await env.DB.batch(stmts);
   return { ok: true };
 }
+async function setPassword(env, email, pw, name) {
+  if (pw.length < 8) throw httpErr(400, "Choose a password of at least 8 characters.");
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO users (email, name, pass, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET pass = excluded.pass")
+      .bind(email, name || null, await hashPassword(pw), new Date().toISOString()),
+    env.DB.prepare("DELETE FROM sessions WHERE email = ?").bind(email),
+    env.DB.prepare("DELETE FROM attempts WHERE email = ?").bind(email),
+  ]);
+}
+// The password is shared by every department page, so an owner cannot set another owner's password.
+async function checkCanSetPassword(env, me, email) {
+  if (email === me.email) throw httpErr(400, "Change your own password with the Password button.");
+  if (await first(env, "SELECT 1 AS x FROM members WHERE email = ? AND role = 'owner' LIMIT 1", email)) throw httpErr(403, "This person is an owner. They change their own password with the Password button.");
+}
 async function members(env, dept, me, action, body) {
   needRole(me, ["owner"]);
   if (action === "list") {
@@ -190,27 +204,30 @@ async function members(env, dept, me, action, body) {
     const role = String(body.role || "");
     if (!ROLES.includes(role)) throw httpErr(400, "Choose a role.");
     if (email === me.email && role !== "owner") throw httpErr(400, "You cannot remove your own owner access.");
+    const name = String(body.name || "").trim().slice(0, 80) || null, pw = body.password == null ? "" : String(body.password);
+    if (pw) {
+      if (pw.length < 8) throw httpErr(400, "Choose a password of at least 8 characters.");
+      await checkCanSetPassword(env, me, email);
+    }
     await env.DB.prepare("INSERT INTO members (dept, email, name, role, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(dept, email) DO UPDATE SET role = excluded.role, name = COALESCE(excluded.name, members.name)")
-      .bind(dept, email, String(body.name || "").trim().slice(0, 80) || null, role, new Date().toISOString()).run();
+      .bind(dept, email, name, role, new Date().toISOString()).run();
+    if (pw) await setPassword(env, email, pw, name);
     return { ok: true };
   }
   if (action === "delete") {
     if (email === me.email) throw httpErr(400, "You cannot remove yourself.");
-    await env.DB.prepare("DELETE FROM members WHERE dept = ? AND email = ?").bind(dept, email).run();
+    // The login itself is removed only when the person has no other department left
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM members WHERE dept = ? AND email = ?").bind(dept, email),
+      ...["users", "sessions", "attempts"].map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE email = ? AND NOT EXISTS (SELECT 1 FROM members WHERE email = ?)`).bind(email, email)),
+    ]);
     return { ok: true };
   }
   if (action === "password") {
-    const pw = String(body.password || "");
-    if (pw.length < 8) throw httpErr(400, "Choose a password of at least 8 characters.");
-    if (!(await first(env, "SELECT 1 AS x FROM members WHERE dept = ? AND email = ?", dept, email))) throw httpErr(404, "This person is not in your team.");
-    if (!(await first(env, "SELECT 1 AS x FROM users WHERE email = ?", email))) throw httpErr(404, "This person has not created an account yet.");
-    // The password is shared by every department page, so an owner cannot reset another owner's password.
-    if (await first(env, "SELECT 1 AS x FROM members WHERE email = ? AND role = 'owner' LIMIT 1", email)) throw httpErr(403, "This person is an owner. They change their own password with the Password button.");
-    await env.DB.batch([
-      env.DB.prepare("UPDATE users SET pass = ? WHERE email = ?").bind(await hashPassword(pw), email),
-      env.DB.prepare("DELETE FROM sessions WHERE email = ?").bind(email),
-      env.DB.prepare("DELETE FROM attempts WHERE email = ?").bind(email),
-    ]);
+    const member = await first(env, "SELECT name FROM members WHERE dept = ? AND email = ?", dept, email);
+    if (!member) throw httpErr(404, "This person is not in your team.");
+    await checkCanSetPassword(env, me, email);
+    await setPassword(env, email, String(body.password || ""), member.name);
     return { ok: true };
   }
   throw httpErr(404, "Unknown action.");
