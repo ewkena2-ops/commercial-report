@@ -1,34 +1,33 @@
-# Commercial Report
+# Daily Commercial Report
 
-A single-page commercial report for a kitchen & cabinet business, covering **leads, sales, expenses, advances, final settlements and payments**. It has a period filter, charts with table views, searchable and sortable registers with CSV export, printable settlement statements, and light and dark themes.
+A daily commercial report for a kitchen & cabinet business, built around nine questions:
+
+1. **Today paid**: money customers paid today, each day this week, split into advance / final / other
+2. **Leads**: new leads today and this week, by source and stage
+3. **Expected advance**: deposits customers agreed to pay, marked overdue / due today / this week
+4. **Expected final**: final payments expected after installation, with the same markers
+5. **Problems**: open problems, who is responsible, days open
+6. **Weekly production**: boxes produced this week, by stage, against the last 12 weeks
+7. **Social media**: posts, new followers, views and inquiries per platform, compared with last week
+8. **Weekly total leads**: leads per week over the last 12 weeks
+9. **Changed to paid customer**: leads that became paying customers, and the conversion rate
 
 **Live:** https://ewkena2-ops.github.io/commercial-report/
 
-## Use your own data: the Data sheet
+## Using it
 
-Click **Data sheet** (top right, or in the sidebar) to edit the records behind the report, like a spreadsheet:
+- Pick any **date** at the top (arrows move one day). The week runs Monday to Sunday.
+- **Data sheet** holds the records, one tab per topic: Payments received, Leads, Expected advance, Expected final, Problems, Production, Social media. Type rows directly, or **Import Excel / CSV**.
+  - Setting a lead's stage to *Paid customer* fills in the paid date. Setting a problem to *Solved* fills in the solved date.
+  - **Try example data** fills the sheet with made-up records so you can see the report; **Start empty** clears it.
+- **Download PDF** makes a 3 to 4 page report for the selected date. Amharic text is supported through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).
 
-- **Type directly** into the sheets: Leads, Sales, Expenses, Advances, Final settlement and Payments. **Add row** adds a line and the bin icon deletes one (with Undo).
-- **Import Excel / CSV**: a workbook whose tab names match the sheets (Leads, Sales, ...) fills them all at once. A single CSV goes into the sheet you have open. Column headers must match the sheet's column names. Dates are read day-first (05/03/2026 = 5 March).
-- **Export Excel** saves everything as one workbook, which is also the easiest template to fill in.
-- **Settings** holds the company name, currency (ETB), period and which expense categories count as materials.
-
-The published `data.js` starts **empty**: each phone or computer keeps the records typed on it, and the report on that device is built from them. Back up often with **Export Excel**; clearing the browser's data removes them.
-
-Edits are saved **in your browser only**. To publish them for everyone, click **Download data.js**, then in this repository choose **Add file → Upload files** and upload it (it replaces the old `data.js`). The live site updates about a minute later.
-
-The sample data in this repository is fictional.
-
-## PDF
-
-- **Download PDF** (top of the page) builds a full report for the selected period (Year to date, a quarter or a month): key figures, a sales vs expenses chart, profit & loss, cash, and every section with its records. Choose a shorter period for a shorter PDF.
-- Each **Final settlement** statement has its own **PDF** button, a one-page statement ready to send to the customer.
-- Amharic (Ethiopic) text is supported in PDFs through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).
+Records are saved **on the device where you type them**. Back up often with **Export Excel**. To publish the same data for everyone, use **Download data.js** and upload it to this repository (Add file → Upload files).
 
 ## Files
 
 - `index.html`: page structure
 - `styles.css`: design tokens (light and dark), layout and print styles
-- `app.js`: calculations, charts, tables and the period filter (no dependencies)
-- `data.js`: the published data (created with Download data.js in the Data sheet)
-- `fonts/`: Abyssinica SIL font used for Amharic text in PDFs, with its licence
+- `app.js`: calculations, charts, tables, data sheet, Excel and PDF export
+- `data.js`: the published data (empty to start)
+- `fonts/`: Abyssinica SIL font for Amharic in PDFs, with its licence

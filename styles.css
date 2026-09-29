@@ -739,3 +739,22 @@ tr:hover .del-btn, .del-btn:focus-visible { opacity: 1; }
 @media print {
   .sheet-view, .notice, .view-seg, .toast { display: none !important; }
 }
+
+/* ==========================================================================
+   Daily report additions
+   ========================================================================== */
+.date-nav { display: inline-flex; align-items: center; gap: 6px; }
+.icon-btn.sm { width: 34px; height: 34px; }
+.icon-btn.sm svg { width: 16px; height: 16px; }
+.date-input { height: 36px; font-variant-numeric: tabular-nums; }
+.btn:disabled { opacity: .45; cursor: default; }
+.glance { margin-top: 18px; }
+.dt td.wrap { white-space: normal; min-width: 200px; max-width: 360px; line-height: 1.4; }
+.hero-sub strong { color: var(--ink); font-weight: 600; }
+.hero-sub .delta { margin-left: 4px; }
+.tile-foot .delta svg { width: 13px; height: 13px; }
+@media (max-width: 560px) {
+  .date-nav { flex: 1 1 auto; }
+  .date-input { flex: 1 1 auto; min-width: 0; }
+  .dt td.wrap { min-width: 160px; }
+}

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Commercial Report</title>
-  <meta name="description" content="Commercial report: leads, sales, expenses, advances, final settlements and payments.">
+  <title>Daily Commercial Report</title>
+  <meta name="description" content="Daily commercial report: payments today, leads, expected advance and final payments, problems, weekly production, social media and conversion.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0b0b'/%3E%3Crect x='8' y='17' width='4' height='7' rx='1' fill='%23fff'/%3E%3Crect x='14' y='12' width='4' height='12' rx='1' fill='%23fff'/%3E%3Crect x='20' y='8' width='4' height='16' rx='1' fill='%233987e5'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,25 +25,27 @@
         </span>
         <div class="brand-text">
           <strong id="company-name">Company</strong>
-          <span>Commercial report</span>
+          <span>Daily commercial report</span>
         </div>
       </div>
 
       <nav class="nav" id="nav">
-        <a href="#overview" data-icon="overview">Overview</a>
+        <a href="#paid" data-icon="cash">Today paid</a>
         <a href="#leads" data-icon="leads">Leads</a>
-        <a href="#sales" data-icon="sales">Sales</a>
-        <a href="#expenses" data-icon="expenses">Expenses</a>
-        <a href="#advances" data-icon="advances">Advances</a>
-        <a href="#settlement" data-icon="settlement">Final settlement</a>
-        <a href="#payments" data-icon="payments">Payments</a>
+        <a href="#advance" data-icon="arrowInBox">Expected advance</a>
+        <a href="#final" data-icon="flag">Expected final</a>
+        <a href="#problems" data-icon="alertTri">Problems</a>
+        <a href="#production" data-icon="box">Weekly production</a>
+        <a href="#social" data-icon="megaphone">Social media</a>
+        <a href="#weekly-leads" data-icon="bars">Weekly total leads</a>
+        <a href="#converted" data-icon="userCheck">Paid customers</a>
         <a href="#sheet" data-icon="sheet" class="nav-sheet">Data sheet</a>
       </nav>
 
       <div class="sidebar-foot">
         <span class="foot-label">Prepared by</span>
         <span id="prepared-by">—</span>
-        <span class="foot-label">Data as of</span>
+        <span class="foot-label">Report date</span>
         <span id="as-of">—</span>
       </div>
     </aside>
@@ -52,16 +54,16 @@
       <div class="content">
         <header class="topbar">
           <div>
-            <p class="eyebrow" id="eyebrow">Commercial report</p>
-            <h1>Commercial Report</h1>
-            <p class="lede" id="lede">Leads, sales, expenses, advances, final settlements and payments in one place.</p>
+            <p class="eyebrow" id="eyebrow">Company</p>
+            <h1>Daily Commercial Report</h1>
+            <p class="lede" id="lede"></p>
           </div>
           <div class="topbar-actions">
             <div class="seg view-seg" id="view-seg" role="group" aria-label="View">
               <button type="button" data-view="report" aria-pressed="true">Report</button>
               <button type="button" data-view="sheet" aria-pressed="false">Data sheet</button>
             </div>
-            <button class="btn btn-primary" id="pdf-btn" type="button" title="Download the report for the selected period as a PDF file">
+            <button class="btn btn-primary" id="pdf-btn" type="button" title="Download this report as a PDF file">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
               <span>Download PDF</span>
             </button>
@@ -77,310 +79,108 @@
 
         <div class="notice report-only" id="data-banner" hidden></div>
 
-        <div class="filterbar report-only" role="toolbar" aria-label="Report period">
-          <span class="filter-label">Period</span>
-          <div class="seg" id="period-seg"></div>
-          <label class="sr-only" for="month-select">Single month</label>
-          <select class="select" id="month-select"></select>
+        <div class="filterbar report-only" role="toolbar" aria-label="Report date">
+          <span class="filter-label">Date</span>
+          <div class="date-nav">
+            <button class="icon-btn sm" id="day-prev" type="button" aria-label="Previous day"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+            <label class="sr-only" for="report-date">Report date</label>
+            <input class="input date-input" type="date" id="report-date">
+            <button class="icon-btn sm" id="day-next" type="button" aria-label="Next day"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
+          <button class="btn btn-sm" id="day-today" type="button">Today</button>
           <span class="filter-note" id="filter-note"></span>
         </div>
 
-        <!-- 01 OVERVIEW -->
-        <section class="section report-only" id="overview" aria-labelledby="h-overview">
-          <div class="section-head">
-            <span class="section-num">01</span>
-            <div>
-              <h2 id="h-overview">Overview</h2>
-              <p>Headline numbers for the selected period.</p>
-            </div>
-          </div>
+        <!-- AT A GLANCE -->
+        <div class="overview-top report-only glance">
+          <article class="card hero" id="hero"></article>
+          <div class="tiles" id="kpi-tiles"></div>
+        </div>
 
-          <div class="overview-top">
-            <article class="card hero" id="hero"></article>
-            <div class="tiles" id="kpi-tiles"></div>
+        <!-- 01 TODAY PAID -->
+        <section class="section report-only" id="paid" aria-labelledby="h-paid">
+          <div class="section-head"><span class="section-num">01</span><div><h2 id="h-paid">Today paid</h2><p>Money customers paid us on the report date, and so far this week.</p></div></div>
+          <div class="card stat-strip" id="paid-stats"></div>
+          <div class="grid grid-2">
+            <article class="card chart-card" data-chart="paidDays" data-title="Paid per day this week" data-sub="Report date highlighted"></article>
+            <article class="card chart-card" data-chart="paidTypes" data-title="This week by payment type" data-sub="Advance, final and other payments" data-hb></article>
           </div>
-
-          <div class="overview-bottom">
-            <article class="card chart-card" data-chart="trend">
-              <header class="card-head">
-                <div>
-                  <h3>Sales vs expenses</h3>
-                  <p class="card-sub">Monthly totals · selected period shaded</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="legend">
-                <span><i class="sw-line k-in"></i>Sales</span>
-                <span><i class="sw-line k-out"></i>Expenses</span>
-              </div>
-              <div class="chart-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card pnl" id="pnl"></article>
-          </div>
+          <article class="card table-card"><header class="card-head"><div><h3>Payments received on the report date</h3><p class="card-sub" id="paid-table-sub"></p></div></header><div id="paid-table"></div></article>
         </section>
 
         <!-- 02 LEADS -->
         <section class="section report-only" id="leads" aria-labelledby="h-leads">
-          <div class="section-head">
-            <span class="section-num">02</span>
-            <div>
-              <h2 id="h-leads">Leads</h2>
-              <p>Customer inquiries and how they move from site measurement to a signed order.</p>
-            </div>
-          </div>
-
+          <div class="section-head"><span class="section-num">02</span><div><h2 id="h-leads">Leads</h2><p>New customer inquiries today and this week.</p></div></div>
           <div class="card stat-strip" id="leads-stats"></div>
-
           <div class="grid grid-2">
-            <article class="card chart-card" data-chart="stages">
-              <header class="card-head">
-                <div>
-                  <h3>Pipeline by stage</h3>
-                  <p class="card-sub">Number of leads at each stage</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card chart-card" data-chart="sources">
-              <header class="card-head">
-                <div>
-                  <h3>Leads by source</h3>
-                  <p class="card-sub">Number of new leads per channel</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card chart-card" data-chart="leadsMonthly">
-              <header class="card-head">
-                <div>
-                  <h3>New leads per month</h3>
-                  <p class="card-sub">Selected period highlighted</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card chart-card" data-chart="reps">
-              <header class="card-head">
-                <div>
-                  <h3>Won value by sales rep</h3>
-                  <p class="card-sub">Total value of won leads</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
+            <article class="card chart-card" data-chart="leadSources" data-title="This week's leads by source" data-sub="Where new customers found us" data-hb></article>
+            <article class="card chart-card" data-chart="leadStages" data-title="This week's leads by stage" data-sub="Where each lead is now" data-hb></article>
           </div>
-
-          <article class="card table-card">
-            <header class="card-head"><div><h3>Leads register</h3><p class="card-sub">Every lead captured in the period</p></div></header>
-            <div id="leads-table"></div>
-          </article>
+          <article class="card table-card"><header class="card-head"><div><h3>Leads this week</h3><p class="card-sub">Newest first</p></div></header><div id="leads-table"></div></article>
         </section>
 
-        <!-- 03 SALES -->
-        <section class="section report-only" id="sales" aria-labelledby="h-sales">
-          <div class="section-head">
-            <span class="section-num">03</span>
-            <div>
-              <h2 id="h-sales">Sales</h2>
-              <p>Orders invoiced: which products sell and who buys them.</p>
-            </div>
-          </div>
-
-          <div class="card stat-strip" id="sales-stats"></div>
-
-          <div class="grid grid-2">
-            <article class="card chart-card" data-chart="categories">
-              <header class="card-head">
-                <div>
-                  <h3>Revenue by product</h3>
-                  <p class="card-sub">Kitchens, wardrobes, vanities and more</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card chart-card" data-chart="customers">
-              <header class="card-head">
-                <div>
-                  <h3>Top customers</h3>
-                  <p class="card-sub">Largest accounts by invoiced amount</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-          </div>
-
-          <article class="card table-card">
-            <header class="card-head"><div><h3>Sales invoices</h3><p class="card-sub">Invoices raised in the period</p></div></header>
-            <div id="sales-table"></div>
-          </article>
-        </section>
-
-        <!-- 04 EXPENSES -->
-        <section class="section report-only" id="expenses" aria-labelledby="h-expenses">
-          <div class="section-head">
-            <span class="section-num">04</span>
-            <div>
-              <h2 id="h-expenses">Expenses</h2>
-              <p>Materials, workshop and overhead costs, by category and by month.</p>
-            </div>
-          </div>
-
-          <div class="card stat-strip" id="expense-stats"></div>
-
-          <div class="grid grid-2">
-            <article class="card chart-card" data-chart="expenseCats">
-              <header class="card-head">
-                <div>
-                  <h3>Expenses by category</h3>
-                  <p class="card-sub">Total spend per category</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body hb-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-
-            <article class="card chart-card" data-chart="expenseMonthly">
-              <header class="card-head">
-                <div>
-                  <h3>Monthly spend</h3>
-                  <p class="card-sub">Selected period highlighted</p>
-                </div>
-                <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                  <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                  <button type="button" data-view="table" aria-pressed="false">Table</button>
-                </div>
-              </header>
-              <div class="chart-body"></div>
-              <div class="chart-table" hidden></div>
-            </article>
-          </div>
-
-          <article class="card table-card">
-            <header class="card-head"><div><h3>Expense register</h3><p class="card-sub">Every expense booked in the period</p></div></header>
-            <div id="expense-table"></div>
-          </article>
-        </section>
-
-        <!-- 05 ADVANCES -->
-        <section class="section report-only" id="advances" aria-labelledby="h-advances">
-          <div class="section-head">
-            <span class="section-num">05</span>
-            <div>
-              <h2 id="h-advances">Advances</h2>
-              <p>Order deposits received from customers and advances paid to suppliers, and how much has been offset.</p>
-            </div>
-          </div>
-
+        <!-- 03 EXPECTED ADVANCE -->
+        <section class="section report-only" id="advance" aria-labelledby="h-advance">
+          <div class="section-head"><span class="section-num">03</span><div><h2 id="h-advance">Expected advance</h2><p>Deposits customers have agreed to pay, and when.</p></div></div>
           <div class="card stat-strip" id="advance-stats"></div>
-
-          <article class="card table-card">
-            <header class="card-head"><div><h3>Advance register</h3><p class="card-sub">Recovered = amount already offset against invoices, deliveries or supplier bills</p></div></header>
-            <div id="advance-table"></div>
-          </article>
+          <article class="card table-card"><header class="card-head"><div><h3>Expected advance payments</h3><p class="card-sub">Overdue first, then by expected date</p></div></header><div id="advance-table"></div></article>
         </section>
 
-        <!-- 06 FINAL SETTLEMENT -->
-        <section class="section report-only" id="settlement" aria-labelledby="h-settlement">
-          <div class="section-head">
-            <span class="section-num">06</span>
-            <div>
-              <h2 id="h-settlement">Final settlement</h2>
-              <p>Closing statement for each installed project: contract value, deposit and payments received, and the final balance.</p>
-            </div>
-          </div>
-
-          <div class="card stat-strip" id="settlement-stats"></div>
-
-          <div class="fs-layout">
-            <div class="fs-list" id="fs-list" role="listbox" aria-label="Projects"></div>
-            <article class="card statement" id="statement"></article>
-          </div>
+        <!-- 04 EXPECTED FINAL -->
+        <section class="section report-only" id="final" aria-labelledby="h-final">
+          <div class="section-head"><span class="section-num">04</span><div><h2 id="h-final">Expected final</h2><p>Final payments due after delivery and installation.</p></div></div>
+          <div class="card stat-strip" id="final-stats"></div>
+          <article class="card table-card"><header class="card-head"><div><h3>Expected final payments</h3><p class="card-sub">Overdue first, then by expected date</p></div></header><div id="final-table"></div></article>
         </section>
 
-        <!-- 07 PAYMENTS -->
-        <section class="section report-only" id="payments" aria-labelledby="h-payments">
-          <div class="section-head">
-            <span class="section-num">07</span>
-            <div>
-              <h2 id="h-payments">Payments</h2>
-              <p>Every payment in and out, with what is still pending or overdue.</p>
-            </div>
+        <!-- 05 PROBLEMS -->
+        <section class="section report-only" id="problems" aria-labelledby="h-problems">
+          <div class="section-head"><span class="section-num">05</span><div><h2 id="h-problems">Problems</h2><p>Customer complaints, delays and production issues, and who is solving them.</p></div></div>
+          <div class="card stat-strip" id="problem-stats"></div>
+          <article class="card table-card"><header class="card-head"><div><h3>Problem list</h3><p class="card-sub">Oldest open problem first</p></div></header><div id="problem-table"></div></article>
+        </section>
+
+        <!-- 06 WEEKLY PRODUCTION -->
+        <section class="section report-only" id="production" aria-labelledby="h-production">
+          <div class="section-head"><span class="section-num">06</span><div><h2 id="h-production">Weekly production</h2><p>Cabinet boxes and units produced this week, by order and stage.</p></div></div>
+          <div class="card stat-strip" id="production-stats"></div>
+          <div class="grid grid-2">
+            <article class="card chart-card" data-chart="prodWeeks" data-title="Boxes produced per week" data-sub="Last 12 weeks · this week highlighted"></article>
+            <article class="card chart-card" data-chart="prodStages" data-title="This week by stage" data-sub="Boxes at each production stage" data-hb></article>
           </div>
+          <article class="card table-card"><header class="card-head"><div><h3>Production this week</h3><p class="card-sub">One row per order or batch</p></div></header><div id="production-table"></div></article>
+        </section>
 
-          <div class="status-tiles" id="payment-tiles"></div>
+        <!-- 07 SOCIAL MEDIA -->
+        <section class="section report-only" id="social" aria-labelledby="h-social">
+          <div class="section-head"><span class="section-num">07</span><div><h2 id="h-social">Social media</h2><p>Posts, followers, views and inquiries this week, per platform.</p></div></div>
+          <div class="card stat-strip" id="social-stats"></div>
+          <div class="grid grid-2">
+            <article class="card chart-card" data-chart="socialInq" data-title="Inquiries by platform" data-sub="Messages and calls from each platform this week" data-hb></article>
+            <article class="card chart-card" data-chart="socialViews" data-title="Views by platform" data-sub="How many people saw our posts this week" data-hb></article>
+          </div>
+          <article class="card table-card"><header class="card-head"><div><h3>This week per platform</h3><p class="card-sub">Compared with last week</p></div></header><div id="social-table"></div></article>
+        </section>
 
-          <article class="card chart-card" data-chart="cashflow">
-            <header class="card-head">
-              <div>
-                <h3>Cash in vs cash out</h3>
-                <p class="card-sub">Completed payments per month · selected period highlighted</p>
-              </div>
-              <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
-                <button type="button" data-view="chart" aria-pressed="true">Chart</button>
-                <button type="button" data-view="table" aria-pressed="false">Table</button>
-              </div>
-            </header>
-            <div class="legend">
-              <span><i class="sw-rect k-in"></i>Cash in</span>
-              <span><i class="sw-rect k-out"></i>Cash out</span>
-            </div>
-            <div class="chart-body"></div>
-            <div class="chart-table" hidden></div>
-          </article>
+        <!-- 08 WEEKLY TOTAL LEADS -->
+        <section class="section report-only" id="weekly-leads" aria-labelledby="h-weekly-leads">
+          <div class="section-head"><span class="section-num">08</span><div><h2 id="h-weekly-leads">Weekly total leads</h2><p>How many new leads we get each week.</p></div></div>
+          <div class="card stat-strip" id="weekly-stats"></div>
+          <article class="card chart-card" data-chart="leadWeeks" data-title="New leads per week" data-sub="Last 12 weeks · this week highlighted"></article>
+        </section>
 
-          <article class="card table-card">
-            <header class="card-head"><div><h3>Payment log</h3><p class="card-sub">Completed payments by payment date; pending and overdue by due date</p></div></header>
-            <div id="payment-table"></div>
-          </article>
+        <!-- 09 CHANGED TO PAID CUSTOMER -->
+        <section class="section report-only" id="converted" aria-labelledby="h-converted">
+          <div class="section-head"><span class="section-num">09</span><div><h2 id="h-converted">Changed to paid customer</h2><p>How many leads became paying customers.</p></div></div>
+          <div class="card stat-strip" id="convert-stats"></div>
+          <article class="card chart-card" data-chart="convertWeeks" data-title="New paid customers per week" data-sub="Last 12 weeks · this week highlighted"></article>
+          <article class="card table-card"><header class="card-head"><div><h3>Became paid customers this week</h3><p class="card-sub">Leads marked "Paid customer" with a paid date this week</p></div></header><div id="convert-table"></div></article>
         </section>
 
         <!-- DATA SHEET -->
         <section class="sheet-view" id="sheet" aria-labelledby="h-sheet">
           <div class="section-head">
-            <span class="section-num">08</span>
+            <span class="section-num">✎</span>
             <div>
               <h2 id="h-sheet">Data sheet</h2>
               <p>Type, paste or import your records here, like a spreadsheet. The report is calculated from this sheet.</p>
@@ -399,7 +199,7 @@
             <button class="btn btn-sm" id="export-xlsx" type="button"></button>
             <button class="btn btn-sm" id="export-js" type="button"></button>
             <span class="dt-spacer"></span>
-            <button class="btn btn-sm btn-ghost" id="restore-sample" type="button">Reset to published</button>
+            <button class="btn btn-sm btn-ghost" id="load-example" type="button">Try example data</button>
             <button class="btn btn-sm btn-ghost danger" id="clear-all" type="button">Start empty</button>
           </div>
 
@@ -407,7 +207,7 @@
         </section>
 
         <footer class="page-foot">
-          <p><strong id="foot-company">Company</strong> · Commercial report · <span id="foot-period"></span></p>
+          <p><strong id="foot-company">Company</strong> · Daily commercial report · <span id="foot-period"></span></p>
           <p class="muted" id="foot-note"></p>
         </footer>
       </div>
