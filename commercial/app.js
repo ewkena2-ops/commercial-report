@@ -1123,7 +1123,7 @@
       h("div", { class: "grow" },
         h("strong", {}, "Saved automatically on this device. "),
         "Back up with ", h("strong", {}, "Export Excel"), ". To show the same data on another device, use ", h("strong", {}, "Download data.js"),
-        " and upload it to your GitHub repository (Add file → Upload files)."));
+        " and upload it into the commercial folder of your GitHub repository (open the folder, then Add file → Upload files)."));
   }
 
   function renderSheet() {
@@ -1347,7 +1347,7 @@
     return `/*
  * DAILY COMMERCIAL REPORT — DATA FILE
  * Exported from the Data sheet on ${todayISO()}.
- * Upload this file to the GitHub repository (replacing data.js) to publish it.
+ * Upload this file into the commercial/ folder of the GitHub repository (replacing data.js) to publish it.
  */
 window.REPORT_DATA = {
   sample: ${D.sample ? "true" : "false"},
@@ -1824,7 +1824,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     $("#export-js").replaceChildren(icon("code"), "Download data.js");
     $("#export-js").addEventListener("click", () => {
       download("data.js", dataJsText(), "text/javascript;charset=utf-8");
-      toast("data.js downloaded. Upload it to your GitHub repository to publish.");
+      toast("data.js downloaded. Upload it into the commercial folder on GitHub to publish.");
     });
     $("#load-example").addEventListener("click", () => {
       const has = DATASETS.some((k) => D[k].length) && !D.sample;
