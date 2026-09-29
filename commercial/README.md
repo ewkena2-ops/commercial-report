@@ -21,15 +21,27 @@ A daily commercial report for a kitchen & cabinet business, built around nine qu
 - Pick any **date** at the top (arrows move one day). The week runs Monday to Sunday.
 - **Data sheet** holds the records, one tab per topic: Payments received, Leads, Pre-measurement, Expected advance, Expected final, Problems, Social media. Type rows directly, or **Import Excel / CSV**.
   - Setting a lead's stage to *Paid customer* fills in the paid date. Setting a problem to *Solved* fills in the solved date.
-  - **Try example data** fills the sheet with made-up records so you can see the report; **Start empty** clears it.
 - **Download PDF** makes a 3 to 4 page report for the selected date. Amharic text is supported through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).
 
-Records are saved **on the device where you type them**. Back up often with **Export Excel**. To publish the same data for everyone, use **Download data.js** and upload it into this `commercial/` folder on GitHub (open the folder, then Add file → Upload files).
+## Login and access
+
+Records are shared online through a small Cloudflare server (Worker + D1 database, free plan). Everyone signs in with email and password. One account works on every department page the person has access to.
+
+| Access | Can do |
+|---|---|
+| Owner | Everything, plus **Team & access**: add people, change access, reset forgotten passwords |
+| Enters data | Add and edit records and settings, see the report, make PDFs |
+| View only | See the report and records, make PDFs; cannot change anything |
+
+**First start:** the owner opens the link, taps *First time? Create your account*, then *Set up as owner*. In **Data sheet → Team & access** they add each person's email. Those people then create their own account with that email.
+
+Back up with **Export Excel**. To use the page on one device only (no login), leave `apiUrl` empty in `config.js`.
 
 ## Files
 
 - `index.html`: page structure
 - `styles.css`: design tokens (light and dark), layout and print styles
 - `app.js`: calculations, charts, tables, data sheet, Excel and PDF export
-- `data.js`: the published data (empty to start)
+- `data.js`: default settings (company name, currency)
+- `config.js`: the server address and department name
 - `fonts/`: Abyssinica SIL font for Amharic in PDFs, with its licence

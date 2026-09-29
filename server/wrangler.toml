@@ -1,0 +1,12 @@
+name = "klever-reports-api"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "klever-reports"
+database_id = "61605c4c-322e-4b6b-ae45-a4dc5fdd5803"
+
+[observability]
+enabled = true

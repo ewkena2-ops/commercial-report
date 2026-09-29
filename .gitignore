@@ -3,3 +3,5 @@ image.png
 !fonts/*
 purchasing/
 finance/
+.wrangler/
+node_modules/
