@@ -2,3 +2,4 @@ image.png
 *.png
 !fonts/*
 purchasing/
+finance/
