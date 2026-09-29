@@ -61,9 +61,12 @@
               <button type="button" data-view="report" aria-pressed="true">Report</button>
               <button type="button" data-view="sheet" aria-pressed="false">Data sheet</button>
             </div>
-            <button class="btn" id="print-btn" type="button">
+            <button class="btn btn-primary" id="pdf-btn" type="button" title="Download the report for the selected period as a PDF file">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+              <span>Download PDF</span>
+            </button>
+            <button class="icon-btn" id="print-btn" type="button" aria-label="Print" title="Print">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/></svg>
-              <span>Print / PDF</span>
             </button>
             <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch colour theme">
               <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -396,7 +399,7 @@
             <button class="btn btn-sm" id="export-xlsx" type="button"></button>
             <button class="btn btn-sm" id="export-js" type="button"></button>
             <span class="dt-spacer"></span>
-            <button class="btn btn-sm btn-ghost" id="restore-sample" type="button">Restore sample</button>
+            <button class="btn btn-sm btn-ghost" id="restore-sample" type="button">Reset to published</button>
             <button class="btn btn-sm btn-ghost danger" id="clear-all" type="button">Start empty</button>
           </div>
 

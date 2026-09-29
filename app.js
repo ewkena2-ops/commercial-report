@@ -144,12 +144,17 @@
     fPct = new Intl.NumberFormat(LOC, { style: "percent", maximumFractionDigits: 1 });
     fDate = new Intl.DateTimeFormat(LOC, { day: "numeric", month: "short", year: "numeric" });
 
-    // Period: settings first, otherwise the span of the data
-    let start = isoRe.test(C.periodStart || "") ? parseD(C.periodStart) : null;
-    let end = isoRe.test(C.periodEnd || "") ? parseD(C.periodEnd) : null;
-    if (!start || !end || end < start) {
-      const dates = DATASETS.flatMap((k) => D[k].map((r) => r.date || r.settlementDate)).filter((x) => isoRe.test(String(x))).sort();
-      const today = new Date();
+    // Period: blank start = 1 Jan this year; blank end = today, or the latest record (up to a year ahead)
+    const today = new Date();
+    const dates = DATASETS.flatMap((k) => D[k].map((r) => r.date || r.settlementDate)).filter((x) => isoRe.test(String(x))).sort();
+    let start = isoRe.test(C.periodStart || "") ? parseD(C.periodStart) : new Date(today.getFullYear(), 0, 1);
+    let end = isoRe.test(C.periodEnd || "") ? parseD(C.periodEnd) : today;
+    if (!isoRe.test(C.periodEnd || "") && dates.length) {
+      const last = parseD(dates[dates.length - 1]);
+      const cap = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
+      if (last > end) end = last > cap ? cap : last;
+    }
+    if (end < start) {
       start = dates.length ? parseD(dates[0]) : new Date(today.getFullYear(), 0, 1);
       end = dates.length ? parseD(dates[dates.length - 1]) : today;
     }
@@ -395,7 +400,11 @@
     });
   }
 
+  const noData = (series) => series.every((se) => se.values.every((v) => !v));
+  const chartEmpty = (el) => el.replaceChildren(emptyState("No data yet", "Add records in the Data sheet and this chart fills in."));
+
   function drawLine(el, { series, selected, fmt, fmtTick, extraRows, label }) {
+    if (noData(series)) { chartEmpty(el); return; }
     const W = Math.max(el.clientWidth - 18, 260), H = 272;
     const narrow = W < 520;
     const { top, ticks } = niceScale(Math.max(0, ...series.flatMap((se) => se.values)));
@@ -469,6 +478,7 @@
   }
 
   function drawColumns(el, { series, selected, fmt, fmtTick, integer = false, extraRows, label }) {
+    if (noData(series)) { chartEmpty(el); return; }
     const W = Math.max(el.clientWidth - 18, 260), H = 252;
     const maxV = Math.max(0, ...series.flatMap((se) => se.values));
     const { top, ticks } = niceScale(maxV, 4, integer);
@@ -1000,6 +1010,8 @@
       h("span", { class: "lbl" }, lbl, note ? h("small", {}, note) : null), h("span", { class: "v" }, v));
     const printBtn = h("button", { class: "btn btn-sm", type: "button" }, icon("printer"), "Print statement");
     printBtn.addEventListener("click", () => { document.body.classList.add("print-statement"); window.print(); });
+    const pdfBtn = h("button", { class: "btn btn-sm", type: "button" }, icon("download"), "PDF");
+    pdfBtn.addEventListener("click", () => withBusy(pdfBtn, () => exportStatementPdf(f)));
 
     doc.replaceChildren(
       h("div", { class: "st-head" },
@@ -1007,7 +1019,7 @@
           h("div", { class: "st-kicker" }, "Final settlement statement"),
           h("h3", { class: "st-title" }, f.project),
           h("p", { class: "st-company" }, `${C.name} → ${f.client}`)),
-        h("div", { class: "st-no" }, h("span", { class: "id" }, f.id), badge(f.status), h("div", { class: "st-actions" }, printBtn))),
+        h("div", { class: "st-no" }, h("span", { class: "id" }, f.id), badge(f.status), h("div", { class: "st-actions" }, pdfBtn, printBtn))),
       h("div", { class: "st-meta" },
         h("div", {}, h("span", {}, "Customer"), h("strong", {}, f.client)),
         h("div", {}, h("span", {}, "Order date"), h("strong", {}, fdate(f.startDate))),
@@ -1142,38 +1154,30 @@
     $("#foot-company").textContent = C.name || "Company";
     $("#eyebrow").textContent = C.name || "Commercial report";
     $("#prepared-by").textContent = C.preparedBy || "—";
-    $("#as-of").textContent = fdate(C.periodEnd);
+    $("#as-of").textContent = fdate(isoRe.test(C.periodEnd || "") ? C.periodEnd : toISO(new Date()));
     $("#lede").textContent = `${C.tagline || "Commercial report"} — leads, sales, expenses, advances, final settlements and payments for ${rangeLabel(PRESETS[0].idx)}.`;
     $("#foot-period").textContent = `${rangeLabel(PRESETS[0].idx)} · amounts in ${CUR}`;
     $("#foot-note").textContent = D.sample
       ? "Figures include sample data. Open the Data sheet to enter or import your own records."
-      : "Every number on this page is calculated from the Data sheet.";
+      : "Every number on this page is calculated from the Data sheet. Records are saved on the device they were entered on.";
   }
 
   function renderBanner() {
     const el = $("#data-banner");
     const openSheet = h("button", { class: "btn btn-sm", type: "button" }, icon("sheet"), "Open Data sheet");
     openSheet.addEventListener("click", () => setView("sheet"));
-    if (LOCAL) {
-      const discard = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, "Discard my edits");
-      discard.addEventListener("click", () => {
-        if (!confirm("Discard all edits saved in this browser and go back to the published data?")) return;
-        discardLocal(); rebuildAll(); toast("Edits discarded. Showing the published data.");
-      });
-      el.className = "notice local report-only";
-      el.replaceChildren(icon("alertCircle"),
-        h("div", { class: "grow" }, h("strong", {}, "You're viewing your own edits. "), "They're saved in this browser only. To publish them, use Download data.js in the Data sheet."),
-        h("div", { class: "acts" }, openSheet, discard));
-      el.hidden = false;
+    const empty = DATASETS.every((k) => !D[k].length);
+    let msg = null;
+    if (empty) {
+      msg = [h("strong", {}, "No records yet. "), "Open the Data sheet and add your leads, sales, expenses, advances and payments. The report fills in as you type."];
+    } else if (LOCAL) {
+      msg = [h("strong", {}, "Saved on this device. "), "Back up regularly with Export Excel in the Data sheet. To share with others, use Download data.js."];
     } else if (D.sample) {
-      el.className = "notice report-only";
-      el.replaceChildren(icon("info"),
-        h("div", { class: "grow" }, h("strong", {}, "Sample data. "), "These figures are examples. Enter or import your own records in the Data sheet and the whole report updates."),
-        h("div", { class: "acts" }, openSheet));
-      el.hidden = false;
-    } else {
-      el.hidden = true;
+      msg = [h("strong", {}, "Sample data. "), "These figures are examples. Enter or import your own records in the Data sheet and the whole report updates."];
     }
+    el.className = "notice report-only";
+    el.hidden = !msg;
+    if (msg) el.replaceChildren(icon("info"), h("div", { class: "grow" }, msg), h("div", { class: "acts" }, openSheet));
   }
 
   function rebuildAll() {
@@ -1234,8 +1238,8 @@
     { key: "tagline", label: "Report subtitle" },
     { key: "currency", label: "Currency code", hint: "ISO code, e.g. ETB, USD, EUR" },
     { key: "preparedBy", label: "Prepared by" },
-    { key: "periodStart", label: "Period start", type: "date" },
-    { key: "periodEnd", label: "Period end", type: "date" },
+    { key: "periodStart", label: "Period start", type: "date", hint: "Leave empty for 1 January of this year" },
+    { key: "periodEnd", label: "Period end", type: "date", hint: "Leave empty to always run up to today" },
     { key: "cogsCategories", label: "Materials categories (cost of goods)", hint: "Expense categories counted as materials in the profit & loss, separated by commas", wide: true },
   ];
 
@@ -1557,6 +1561,483 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
 `;
   }
 
+  /* ==========================================================================
+     PDF export — jsPDF + AutoTable, loaded only when a PDF is requested.
+     Amharic (Ethiopic) text is drawn with Abyssinica SIL (fonts/).
+     ========================================================================== */
+  const PDF_LIBS = [
+    "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js",
+  ];
+  const ETH_RE = /[ሀ-᎟ⶀ-⷟꬀-꬯]/;
+  const PC = {
+    ink: [11, 11, 11], ink2: [82, 81, 78], muted: [137, 135, 129], grid: [225, 224, 217], rule: [195, 194, 183],
+    band: [244, 243, 239], in: [42, 120, 214], inSoft: [205, 226, 251], out: [235, 104, 52], outSoft: [249, 212, 196],
+    good: [0, 99, 0], bad: [179, 38, 30],
+  };
+  let pdfLibPromise = null, ethFontB64 = null;
+
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = src;
+      el.onload = resolve;
+      el.onerror = () => reject(new Error("Could not load the PDF tool. Check the internet connection and try again."));
+      document.head.append(el);
+    });
+  }
+  function loadPdfLib() {
+    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return Promise.resolve(window.jspdf.jsPDF);
+    if (!pdfLibPromise) {
+      pdfLibPromise = PDF_LIBS.reduce((p, src) => p.then(() => loadScript(src)), Promise.resolve())
+        .then(() => window.jspdf.jsPDF)
+        .catch((e) => { pdfLibPromise = null; throw e; });
+    }
+    return pdfLibPromise;
+  }
+  function toBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  const pdfClean = (v) => String(v ?? "").replace(/[  ]/g, " ").replace(/−/g, "-").replace(/→/g, "->");
+
+  async function newPdf() {
+    const jsPDF = await loadPdfLib();
+    const doc = new jsPDF({ unit: "pt", format: "a4", compress: true });
+    let eth = false;
+    if (ETH_RE.test(JSON.stringify(D))) {
+      if (!ethFontB64) {
+        const res = await fetch("fonts/AbyssinicaSIL-Regular.ttf");
+        if (!res.ok) throw new Error("Could not load the Amharic font for the PDF.");
+        ethFontB64 = toBase64(await res.arrayBuffer());
+      }
+      doc.addFileToVFS("AbyssinicaSIL-Regular.ttf", ethFontB64);
+      doc.addFont("AbyssinicaSIL-Regular.ttf", "Abyssinica", "normal");
+      eth = true;
+    }
+    return pdfKit(doc, eth);
+  }
+
+  function pdfKit(doc, eth) {
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
+    const k = { doc, W, H, M, y: M, eth };
+    k.font = (style, sample) => {
+      if (eth && ETH_RE.test(sample)) doc.setFont("Abyssinica", "normal");
+      else doc.setFont("helvetica", style || "normal");
+    };
+    k.text = (str, x, y, { size = 9, style = "normal", color = PC.ink, align = "left", maxWidth } = {}) => {
+      const t = pdfClean(str);
+      k.font(style, t);
+      doc.setFontSize(size);
+      doc.setTextColor(...color);
+      doc.text(t, x, y, { align, maxWidth });
+    };
+    k.width = (str, size, style) => { const t = pdfClean(str); k.font(style, t); doc.setFontSize(size); return doc.getTextWidth(t); };
+    k.room = () => H - 52 - k.y;
+    k.ensure = (need) => { if (k.room() < need) { doc.addPage(); k.y = M; } };
+    k.heading = (numStr, title, sub) => {
+      k.ensure(260);
+      if (k.y > M) k.y += 10;
+      doc.setDrawColor(...PC.grid); doc.setFillColor(...PC.band); doc.setLineWidth(0.5);
+      doc.roundedRect(M, k.y - 11, 22, 15, 3, 3, "FD");
+      k.text(numStr, M + 11, k.y, { size: 7.5, style: "bold", color: PC.ink2, align: "center" });
+      k.text(title, M + 30, k.y + 1, { size: 15, style: "bold" });
+      k.y += 15;
+      if (sub) { k.text(sub, M + 30, k.y, { size: 8.5, color: PC.ink2 }); k.y += 6; }
+      k.y += 14;
+    };
+    k.sub = (title, note) => {
+      k.ensure(60);
+      k.text(title, M, k.y, { size: 10, style: "bold" });
+      if (note) k.text(note, W - M, k.y, { size: 7.5, color: PC.muted, align: "right" });
+      k.y += 8;
+    };
+    k.none = (text = "No records in this period.") => { k.text(text, M, k.y + 6, { size: 8.5, color: PC.muted }); k.y += 24; };
+    k.table = (opts) => {
+      const { head, body, align = [], foot, widths = [], margin, startY, fontSize = 8, bold } = opts;
+      if (!body.length) { k.none(); return k.y; }
+      const columnStyles = {};
+      head.forEach((_, i) => {
+        columnStyles[i] = { halign: align[i] === "r" ? "right" : "left" };
+        if (widths[i]) columnStyles[i].cellWidth = widths[i];
+      });
+      doc.autoTable({
+        head: [head.map(pdfClean)],
+        body: body.map((r) => r.map(pdfClean)),
+        foot: foot ? [foot.map(pdfClean)] : undefined,
+        startY: startY ?? k.y,
+        margin: margin || { left: M, right: M, top: M, bottom: 52 },
+        theme: "plain",
+        styles: { font: "helvetica", fontSize, textColor: PC.ink, cellPadding: { top: 4, bottom: 4, left: 5, right: 5 }, lineColor: PC.grid, lineWidth: { bottom: 0.5 }, overflow: "linebreak", valign: "middle" },
+        headStyles: { fillColor: PC.band, textColor: PC.ink2, fontStyle: "bold", fontSize: fontSize - 0.5 },
+        footStyles: { fillColor: PC.band, textColor: PC.ink, fontStyle: "bold", lineWidth: { top: 0.75, bottom: 0 }, lineColor: PC.rule },
+        columnStyles,
+        showHead: "everyPage",
+        showFoot: "lastPage",
+        rowPageBreak: "avoid",
+        didParseCell: (data) => {
+          if (align[data.column.index] === "r") data.cell.styles.halign = "right";
+          if (bold && data.section === "body" && bold(data.row.index)) data.cell.styles.fontStyle = "bold";
+          if (opts.fill && data.section === "body" && opts.fill(data.row.index)) data.cell.styles.fillColor = PC.band;
+          if (eth && ETH_RE.test(data.cell.text.join(" "))) { data.cell.styles.font = "Abyssinica"; data.cell.styles.fontStyle = "normal"; }
+        },
+      });
+      const end = doc.lastAutoTable.finalY;
+      if (startY == null) k.y = end + 20;
+      return end;
+    };
+    // Two short tables next to each other (falls back to stacked if too tall)
+    k.pair = (left, right) => {
+      const rows = Math.max(left.body.length, right.body.length) + 2;
+      const need = rows * 17 + 40;
+      if (need > H - 2 * M - 60 || !left.body.length || !right.body.length) {
+        k.sub(left.title); k.table(left);
+        k.sub(right.title); k.table(right);
+        return;
+      }
+      k.ensure(need);
+      const gap = 18, colW = (W - 2 * M - gap) / 2;
+      const top = k.y;
+      k.text(left.title, M, top, { size: 10, style: "bold" });
+      k.text(right.title, M + colW + gap, top, { size: 10, style: "bold" });
+      const y0 = top + 8;
+      const e1 = k.table({ ...left, startY: y0, margin: { left: M, right: W - M - colW, top: M, bottom: 52 } });
+      const e2 = k.table({ ...right, startY: y0, margin: { left: M + colW + gap, right: M, top: M, bottom: 52 } });
+      k.y = Math.max(e1, e2) + 20;
+    };
+    k.kpis = (items) => {
+      const cols = 4, gap = 8, w = (W - 2 * M - gap * (cols - 1)) / cols, hgt = 52;
+      k.ensure(Math.ceil(items.length / cols) * (hgt + gap) + 10);
+      items.forEach((it, i) => {
+        const x = M + (i % cols) * (w + gap), y = k.y + Math.floor(i / cols) * (hgt + gap);
+        doc.setFillColor(...PC.band); doc.setDrawColor(...PC.grid); doc.setLineWidth(0.5);
+        doc.roundedRect(x, y, w, hgt, 6, 6, "FD");
+        k.text(it.label, x + 10, y + 15, { size: 7.5, color: PC.ink2 });
+        k.text(it.value, x + 10, y + 32, { size: 13.5, style: "bold", maxWidth: w - 16 });
+        if (it.note) k.text(it.note, x + 10, y + 44, { size: 7, color: it.color || PC.muted, maxWidth: w - 16 });
+      });
+      k.y += Math.ceil(items.length / cols) * (hgt + gap) + 12;
+    };
+    k.chart = ({ title, series, selected, fmtTick, height = 140 }) => {
+      if (noData(series)) return;
+      k.ensure(height + 60);
+      k.text(title, M, k.y, { size: 10, style: "bold" });
+      let lx = W - M;
+      [...series].reverse().forEach((se) => {
+        const tw = k.width(se.name, 7.5);
+        lx -= tw;
+        k.text(se.name, lx, k.y, { size: 7.5, color: PC.ink2 });
+        doc.setFillColor(...PC[se.key]); doc.roundedRect(lx - 11, k.y - 6.5, 7, 7, 1.5, 1.5, "F");
+        lx -= 24;
+      });
+      k.y += 14;
+      const { top, ticks } = niceScale(Math.max(0, ...series.flatMap((se) => se.values)));
+      const labW = Math.max(...ticks.map((t) => k.width(fmtTick(t), 7))) + 8;
+      const x0 = M + labW, x1 = W - M, y0 = k.y, y1 = k.y + height;
+      const yv = (v) => y1 - (v / top) * (y1 - y0);
+      for (const t of ticks) {
+        doc.setDrawColor(...(t === 0 ? PC.rule : PC.grid)); doc.setLineWidth(0.5);
+        doc.line(x0, yv(t), x1, yv(t));
+        k.text(fmtTick(t), x0 - 6, yv(t) + 2.5, { size: 7, color: PC.muted, align: "right" });
+      }
+      const step = (x1 - x0) / N, n = series.length, gap = 1.5;
+      const colW = Math.max(2, Math.min(14, (step * 0.64 - gap * (n - 1)) / n)), groupW = colW * n + gap * (n - 1);
+      const partial = selected.size < N;
+      MONTHS.forEach((mo, i) => {
+        const cx = x0 + step * (i + 0.5);
+        const dim = partial && !selected.has(i);
+        series.forEach((se, j) => {
+          const v = se.values[i];
+          if (!(v > 0)) return;
+          const bx = cx - groupW / 2 + j * (colW + gap), by = yv(v), bh = y1 - by;
+          const r = Math.min(2, colW / 2, bh / 2);
+          doc.setFillColor(...(dim ? PC[se.key + "Soft"] : PC[se.key]));
+          doc.roundedRect(bx, by, colW, bh, r, r, "F");
+          if (bh > r) doc.rect(bx, y1 - r, colW, r, "F");
+        });
+        if (step >= 16 || i % 2 === 0) {
+          const on = partial && selected.has(i);
+          k.text(mo.short, cx, y1 + 11, { size: 7, color: on ? PC.ink : PC.muted, style: on ? "bold" : "normal", align: "center" });
+        }
+      });
+      k.y = y1 + 30;
+    };
+    k.meter = (p, x, y, w) => {
+      doc.setFillColor(...PC.inSoft); doc.roundedRect(x, y, w, 6, 3, 3, "F");
+      const fw = Math.max(0, Math.min(1, p)) * w;
+      if (fw > 0) { doc.setFillColor(...PC.in); doc.roundedRect(x, y, Math.max(6, fw), 6, 3, 3, "F"); }
+    };
+    k.header = (title, right1, right2) => {
+      const x = M, y = k.y;
+      doc.setFillColor(...PC.ink); doc.roundedRect(x, y, 30, 30, 7, 7, "F");
+      doc.setFillColor(255, 255, 255); doc.rect(x + 8, y + 15, 3.5, 7, "F"); doc.rect(x + 13.5, y + 11, 3.5, 11, "F");
+      doc.setFillColor(...PC.in); doc.rect(x + 19, y + 7, 3.5, 15, "F");
+      k.text(C.name || "Company", x + 40, y + 11, { size: 9.5, style: "bold", color: PC.ink2 });
+      k.text(title, x + 40, y + 29, { size: 19, style: "bold" });
+      k.text(right1, W - M, y + 11, { size: 9.5, style: "bold", align: "right" });
+      k.text(right2, W - M, y + 24, { size: 7.5, color: PC.muted, align: "right" });
+      k.y = y + 42;
+      doc.setDrawColor(...PC.in); doc.setLineWidth(1.5); doc.line(M, k.y, W - M, k.y);
+      k.y += 26;
+    };
+    k.footers = (left) => {
+      const pages = doc.getNumberOfPages();
+      for (let i = 1; i <= pages; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(...PC.grid); doc.setLineWidth(0.5); doc.line(M, H - 34, W - M, H - 34);
+        k.text(left, M, H - 22, { size: 7, color: PC.muted });
+        k.text(`Page ${i} of ${pages}`, W - M, H - 22, { size: 7, color: PC.muted, align: "right" });
+      }
+    };
+    return k;
+  }
+
+  function deltaNote(cur, prev, { upGood = true, pts = false } = {}) {
+    if (!SEL.prev || prev == null || !Number.isFinite(prev) || !Number.isFinite(cur)) return null;
+    let change, text;
+    if (pts) { change = cur - prev; text = `${change >= 0 ? "+" : "-"}${(Math.abs(change) * 100).toFixed(1)} pts`; }
+    else { if (prev === 0) return null; change = (cur - prev) / Math.abs(prev); text = `${change >= 0 ? "+" : "-"}${pct(Math.abs(change))}`; }
+    return { note: `${text} vs ${SEL.prev.label}`, color: Math.abs(change) < 0.0005 ? PC.muted : (change > 0) === upGood ? PC.good : PC.bad };
+  }
+  const kpi = (label, value, cur, prev, opts, fallback) => ({ label, value, ...(deltaNote(cur, prev, opts) || { note: fallback }) });
+
+  function statementLines(f) {
+    const c = fsCalc(f);
+    return {
+      c,
+      body: [
+        ["Original contract value", money(f.contractValue)],
+        ["Add: design changes & extra work", money(f.variations)],
+        ["Final contract value", money(c.final)],
+        ["Less: customer deposit", minus(f.advance)],
+        ["Less: interim payments received", minus(f.interimPaid)],
+        ["Less: delay penalties & discounts", minus(f.penalties)],
+        ["Balance due on final settlement", money(c.balance)],
+        ["Paid against settlement", minus(f.amountPaid)],
+        ["Outstanding", money(c.outstanding)],
+      ],
+      bold: (i) => i === 2 || i === 6 || i === 8,
+      fill: (i) => i === 6,
+    };
+  }
+
+  async function exportReportPdf() {
+    const k = await newPdf();
+    const { W, M: m } = k;
+    const R = V.M, P = V.P;
+    const range = state.month == null ? `${SEL.short} (${SEL.range})` : SEL.short;
+    k.header("Commercial Report", range, `Generated ${fDate.format(new Date())}${SEL.prev ? ` · compared with ${SEL.prev.label}` : ""} · amounts in ${CUR}`);
+
+    // 01 Overview
+    k.kpis([
+      kpi("Revenue", moneyC(R.revenue), R.revenue, P && P.revenue, {}, `${num(R.sales.length)} invoices`),
+      kpi("Expenses", moneyC(R.expenses), R.expenses, P && P.expenses, { upGood: false }, `${pct(R.expenses / R.revenue)} of revenue`),
+      kpi("Net profit", moneyC(R.net), R.net, P && P.net, {}, `${pct(R.net / R.revenue)} margin`),
+      kpi("Cash collected", moneyC(R.cashIn), R.cashIn, P && P.cashIn, {}, "Completed payments in"),
+      kpi("New leads", num(R.leads.length), R.leads.length, P && P.leads.length, {}, `${num(R.won.length)} won`),
+      kpi("Conversion rate", pct(R.conv), R.conv, P && P.conv, { pts: true }, `${num(R.won.length)} of ${num(R.leads.length)} leads`),
+      kpi("Win rate", pct(R.winRate), R.winRate, P && P.winRate, { pts: true }, "Won / (won + lost)"),
+      { label: "Receivables due", value: moneyC(R.receivables), note: `${num(R.recvCount)} pending or overdue` },
+    ]);
+    k.chart({
+      title: "Sales vs expenses by month",
+      series: [{ name: "Sales", key: "in", values: SERIES.sales }, { name: "Expenses", key: "out", values: SERIES.expenses }],
+      selected: SEL.set, fmtTick: moneyC,
+    });
+    const pend = R.pays.filter((p) => p.status === "Pending"), over = R.pays.filter((p) => p.status === "Overdue");
+    k.pair(
+      { title: "Profit & loss", head: ["", "Amount", "%"], align: ["l", "r", "r"], widths: [0, 0, 44],
+        body: [
+          ["Revenue", money(R.revenue), R.revenue ? "100%" : "—"],
+          ["Materials (cost of goods)", minus(R.cogs), pct(R.cogs / R.revenue)],
+          ["Gross profit", money(R.gross), pct(R.gross / R.revenue)],
+          ["Workshop & overheads", minus(R.opex), pct(R.opex / R.revenue)],
+          ["Net profit", R.net < 0 ? "-" + money(-R.net) : money(R.net), pct(R.net / R.revenue)],
+        ], bold: (i) => i === 2 || i === 4, fill: (i) => i === 4 },
+      { title: "Cash", head: ["", "Amount", "Count"], align: ["l", "r", "r"], widths: [0, 0, 44],
+        body: [
+          ["Money in (completed)", money(R.cashIn), num(R.pays.filter((p) => p.direction === "In" && p.status === "Completed").length)],
+          ["Money out (completed)", money(R.cashOut), num(R.pays.filter((p) => p.direction === "Out" && p.status === "Completed").length)],
+          ["Net cash flow", money(R.cashIn - R.cashOut), ""],
+          ["Pending", money(sum(pend)), num(pend.length)],
+          ["Overdue", money(sum(over)), num(over.length)],
+        ], bold: (i) => i === 2, fill: (i) => i === 2 });
+
+    // 02 Leads
+    k.heading("02", "Leads", "Customer inquiries and how they move to a signed order.");
+    const open = R.leads.filter((l) => OPEN_STAGES.includes(l.stage));
+    const wonValue = sum(R.won, (l) => l.value);
+    k.kpis([
+      { label: "Leads captured", value: num(R.leads.length), note: SEL.range },
+      { label: "Won", value: num(R.won.length), note: `${moneyC(wonValue)} in value` },
+      { label: "Open pipeline", value: moneyC(sum(open, (l) => l.value)), note: `${num(open.length)} open leads` },
+      { label: "Avg. won deal", value: R.won.length ? moneyC(wonValue / R.won.length) : "—", note: "Estimated value" },
+    ]);
+    k.pair(
+      { title: "Pipeline by stage", head: ["Stage", "Leads", "Est. value"], align: ["l", "r", "r"],
+        body: V.stages.map((s2) => [s2.label, num(s2.value), s2.extra[0].value]) },
+      { title: "Leads by source", head: ["Source", "Leads", "Won"], align: ["l", "r", "r"],
+        body: V.sources.map((s2) => [s2.label, num(s2.value), s2.extra[0].value]) });
+    if (V.reps.length) { k.sub("Won value by sales rep"); k.table({ head: ["Sales rep", "Won value", "Deals won"], align: ["l", "r", "r"], body: V.reps.map((r) => [r.label, money(r.value), r.extra[0].value]) }); }
+    k.sub("Leads register", `${num(R.leads.length)} leads`);
+    k.table({
+      head: ["Date", "ID", "Contact", "Customer", "Source", "Stage", "Sales rep", "Est. value"], align: ["l", "l", "l", "l", "l", "l", "l", "r"], fontSize: 7.5,
+      body: [...R.leads].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((l) => [fdate(l.date), l.id, l.contact, l.company, l.source, l.stage, l.owner, money(l.value)]),
+      foot: R.leads.length ? ["Total", "", "", "", "", "", "", money(sum(R.leads, (l) => l.value))] : null,
+    });
+
+    // 03 Sales
+    k.heading("03", "Sales", "Orders invoiced: which products sell and who buys them.");
+    const ids = new Set(R.sales.map((x) => x.id));
+    const toCollect = sum(D.payments.filter((p) => p.type === "Invoice" && p.status !== "Completed" && ids.has(p.reference)));
+    k.kpis([
+      { label: "Revenue", value: moneyC(R.revenue), note: SEL.range },
+      { label: "Invoices raised", value: num(R.sales.length), note: "Sales invoices" },
+      { label: "Average invoice", value: R.sales.length ? moneyC(R.revenue / R.sales.length) : "—", note: "Revenue / invoices" },
+      { label: "Still to collect", value: moneyC(toCollect), note: "On this period's invoices" },
+    ]);
+    k.pair(
+      { title: "Revenue by product", head: ["Product", "Revenue", "Share"], align: ["l", "r", "r"],
+        body: V.categories.map((c) => [c.label, money(c.value), pct(c.value / (R.revenue || 1))]) },
+      { title: "Top customers", head: ["Customer", "Revenue", "Invoices"], align: ["l", "r", "r"],
+        body: V.customers.map((c) => [c.label, money(c.value), c.extra[0].value]) });
+    k.sub("Sales invoices", `${num(R.sales.length)} invoices`);
+    k.table({
+      head: ["Date", "Invoice", "Customer", "Product", "Status", "Amount"], align: ["l", "l", "l", "l", "l", "r"], fontSize: 7.5,
+      body: [...R.sales].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((x) => [fdate(x.date), x.id, x.customer, x.category, x.status, money(x.amount)]),
+      foot: R.sales.length ? ["Total", "", "", "", "", money(R.revenue)] : null,
+    });
+
+    // 04 Expenses
+    k.heading("04", "Expenses", "Materials, workshop and overhead costs.");
+    k.kpis([
+      { label: "Total expenses", value: moneyC(R.expenses), note: SEL.range },
+      { label: "Materials", value: moneyC(R.cogs), note: `${pct(R.cogs / R.revenue)} of revenue` },
+      { label: "Workshop & overheads", value: moneyC(R.opex), note: `${pct(R.opex / R.revenue)} of revenue` },
+      { label: "Expenses / revenue", value: R.revenue ? pct(R.expenses / R.revenue) : "—", note: "Lower is better" },
+    ]);
+    k.pair(
+      { title: "Expenses by category", head: ["Category", "Amount", "Share"], align: ["l", "r", "r"],
+        body: V.expenseCats.map((c) => [c.label + (COGS.has(c.label) ? " *" : ""), money(c.value), pct(c.value / (R.expenses || 1))]) },
+      { title: "Spend by month", head: ["Month", "Expenses"], align: ["l", "r"],
+        body: SEL.idx.map((i) => [MONTHS[i].long, money(SERIES.expenses[i])]) });
+    if (V.expenseCats.some((c) => COGS.has(c.label))) { k.text("* counted as materials (cost of goods)", m, k.y - 10, { size: 7, color: PC.muted }); k.y += 4; }
+    k.sub("Expense register", `${num(R.exps.length)} entries`);
+    k.table({
+      head: ["Date", "ID", "Category", "Description", "Vendor / payee", "Amount"], align: ["l", "l", "l", "l", "l", "r"], fontSize: 7.5,
+      body: [...R.exps].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((e) => [fdate(e.date), e.id, e.category, e.description, e.vendor, money(e.amount)]),
+      foot: R.exps.length ? ["Total", "", "", "", "", money(R.expenses)] : null,
+    });
+
+    // 05 Advances
+    k.heading("05", "Advances", "Customer deposits received and advances paid to suppliers.");
+    const adv = advanceRows(SEL.keys).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const rec = adv.filter((a) => a.type === "Received"), paidAdv = adv.filter((a) => a.type === "Paid");
+    k.kpis([
+      { label: "Customer deposits", value: moneyC(sum(rec)), note: `${num(rec.length)} received` },
+      { label: "Deposits not yet delivered", value: moneyC(sum(rec, (a) => a.balance)), note: "Still to offset against work" },
+      { label: "Paid to suppliers", value: moneyC(sum(paidAdv)), note: `${num(paidAdv.length)} purchase orders` },
+      { label: "Supplier advances open", value: moneyC(sum(paidAdv, (a) => a.balance)), note: "Goods not yet received" },
+    ]);
+    k.sub("Advance register", `${num(adv.length)} advances`);
+    k.table({
+      head: ["Date", "Type", "Party / reference", "Advance", "Recovered", "Balance", "Status"], align: ["l", "l", "l", "r", "r", "r", "l"], fontSize: 7.5,
+      widths: [60, 50, 0, 68, 68, 68, 72],
+      body: adv.map((a) => [fdate(a.date), a.type === "Received" ? "Deposit" : "To supplier", `${a.party}\n${a.reference}`, money(a.amount), money(a.recovered), money(a.balance), a.status]),
+      foot: adv.length ? ["Total", "", "", money(sum(adv)), money(sum(adv, (a) => a.recovered)), money(sum(adv, (a) => a.balance)), ""] : null,
+    });
+
+    // 06 Final settlement
+    k.heading("06", "Final settlement", "Closing statements for installed projects.");
+    const fl = inK(D.settlements, SEL.keys, "settlementDate").sort((a, b) => String(a.settlementDate).localeCompare(String(b.settlementDate)));
+    const fc = fl.map(fsCalc);
+    k.kpis([
+      { label: "Projects closed", value: num(fl.length), note: `${num(fl.filter((f) => f.status === "Settled").length)} fully settled` },
+      { label: "Final contract value", value: moneyC(sum(fc, (c) => c.final)), note: "Incl. extra work" },
+      { label: "Collected to date", value: moneyC(sum(fc, (c) => c.collected)), note: "Deposit + interim + final" },
+      { label: "Outstanding", value: moneyC(sum(fc, (c) => c.outstanding)), note: "Balance still to receive" },
+    ]);
+    k.sub("Summary", `${num(fl.length)} projects`);
+    k.table({
+      head: ["ID", "Project", "Customer", "Settled", "Final value", "Collected", "Outstanding", "Status"], align: ["l", "l", "l", "l", "r", "r", "r", "l"], fontSize: 7.5,
+      body: fl.map((f, i) => [f.id, f.project, f.client, fdate(f.settlementDate), money(fc[i].final), money(fc[i].collected), money(fc[i].outstanding), f.status]),
+    });
+    for (const f of fl) {
+      const st = statementLines(f);
+      k.ensure(250);
+      k.text(`${f.id} · ${f.project}`, m, k.y, { size: 10, style: "bold" });
+      k.text(f.status, W - m, k.y, { size: 8, style: "bold", color: PC.ink2, align: "right" });
+      k.y += 12;
+      k.text(`${f.client} · ordered ${fdate(f.startDate)} · installed ${fdate(f.completionDate)} · settled ${fdate(f.settlementDate)}`, m, k.y, { size: 7.5, color: PC.ink2 });
+      k.y += 6;
+      k.table({ head: ["Statement line", "Amount"], align: ["l", "r"], body: st.body, bold: st.bold, fill: st.fill, fontSize: 8 });
+    }
+
+    // 07 Payments
+    k.heading("07", "Payments", "Every payment in and out, with what is pending or overdue.");
+    k.kpis([
+      { label: "Money in", value: moneyC(R.cashIn), note: "Completed" },
+      { label: "Money out", value: moneyC(R.cashOut), note: "Completed" },
+      { label: "Pending", value: moneyC(sum(pend)), note: `${num(pend.length)} not yet due` },
+      { label: "Overdue", value: moneyC(sum(over)), note: `${num(over.length)} past due date`, color: over.length ? PC.bad : PC.muted },
+    ]);
+    k.chart({
+      title: "Cash in vs cash out by month",
+      series: [{ name: "Cash in", key: "in", values: SERIES.cashIn }, { name: "Cash out", key: "out", values: SERIES.cashOut }],
+      selected: SEL.set, fmtTick: moneyC, height: 120,
+    });
+    const pays = [...R.pays].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    k.sub("Payment log", `${num(pays.length)} payments`);
+    k.table({
+      head: ["Date", "In/Out", "Party", "Type", "Reference", "Method", "Status", "Amount"], align: ["l", "l", "l", "l", "l", "l", "l", "r"], fontSize: 7.5,
+      body: pays.map((p) => [fdate(p.date), p.direction, p.party, p.type, p.reference, p.method, p.status, money(p.amount)]),
+    });
+
+    k.footers(`${C.name || "Company"} · Commercial report · ${range}`);
+    k.doc.save(`${slug(C.name)}-commercial-report-${slug(SEL.short)}.pdf`);
+  }
+
+  async function exportStatementPdf(f) {
+    const k = await newPdf();
+    const { doc, W, M: m } = k;
+    const st = statementLines(f);
+    k.header("Final settlement statement", f.id, `Issued ${fDate.format(new Date())}`);
+    k.table({
+      head: ["Customer", "Project", "Status"], align: ["l", "l", "l"], fontSize: 9,
+      body: [[f.client, f.project, f.status]],
+    });
+    k.table({
+      head: ["Order date", "Installed", "Settlement date"], align: ["l", "l", "l"], fontSize: 9,
+      body: [[fdate(f.startDate), fdate(f.completionDate), fdate(f.settlementDate)]],
+    });
+    k.table({ head: ["Statement line", `Amount (${CUR})`], align: ["l", "r"], body: st.body, bold: st.bold, fill: st.fill, fontSize: 10 });
+    k.text(`Collected ${money(st.c.collected)} of ${money(st.c.due)}`, m, k.y, { size: 9, color: PC.ink2 });
+    k.text(pct(st.c.pctCollected), W - m, k.y, { size: 9, style: "bold", align: "right" });
+    k.meter(st.c.pctCollected, m, k.y + 8, W - 2 * m);
+    k.y += 80;
+    const colW = (W - 2 * m - 40) / 3;
+    ["Prepared by", "Approved by", "Customer acknowledgement"].forEach((label, i) => {
+      const x = m + i * (colW + 20);
+      doc.setDrawColor(...PC.rule); doc.setLineWidth(0.75); doc.line(x, k.y, x + colW, k.y);
+      k.text(label, x, k.y + 12, { size: 8, color: PC.ink2 });
+      k.text(i === 0 ? C.preparedBy || "" : i === 2 ? f.client : "", x, k.y + 24, { size: 8 });
+    });
+    k.footers(`${C.name || "Company"} · Final settlement statement ${f.id}`);
+    doc.save(`${slug(f.id)}-final-settlement-${slug(f.client)}.pdf`);
+  }
+
+  async function withBusy(btn, fn) {
+    if (btn.disabled) return;
+    const kids = [...btn.childNodes];
+    btn.disabled = true;
+    btn.replaceChildren(icon("clock"), "Preparing PDF…");
+    try { await fn(); toast("PDF downloaded."); }
+    catch (e) { console.error(e); toast(e.message || "Could not create the PDF."); }
+    finally { btn.disabled = false; btn.replaceChildren(...kids); }
+  }
+
   /* ---------- view switching ---------- */
   function setView(v, { scroll = true } = {}) {
     document.body.dataset.view = v;
@@ -1638,6 +2119,11 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       try { localStorage.setItem("cr-theme", next); } catch (e) { /* storage unavailable */ }
     });
 
+    const pdfTop = $("#pdf-btn");
+    pdfTop.addEventListener("click", () => {
+      if (document.body.dataset.view === "sheet") setView("report", { scroll: false });
+      withBusy(pdfTop, exportReportPdf);
+    });
     $("#print-btn").addEventListener("click", () => {
       if (document.body.dataset.view === "sheet") setView("report");
       requestAnimationFrame(() => window.print());
@@ -1664,8 +2150,8 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       toast("data.js downloaded. Upload it to your GitHub repository to publish.");
     });
     $("#restore-sample").addEventListener("click", () => {
-      if (!confirm("Replace everything in the sheet with the published data? Your edits in this browser will be lost.")) return;
-      discardLocal(); renderSheetTabs(); renderSheet(); toast("Published data restored.");
+      if (!confirm("Delete everything saved on this device and reload the published data? Tip: Export Excel first if you want to keep a copy.")) return;
+      discardLocal(); renderSheetTabs(); renderSheet(); toast("Reset done. Showing the published data.");
     });
     $("#clear-all").addEventListener("click", () => {
       if (!confirm("Start with an empty sheet? All rows will be removed (settings are kept). Tip: Export Excel first to keep a copy.")) return;
