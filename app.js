@@ -1,13 +1,10 @@
 /* ==========================================================================
    Commercial Report — app
-   Everything is computed from window.REPORT_DATA (data.js).
+   The report is computed from the data sheet. The sheet starts from
+   window.REPORT_DATA (data.js); edits are saved in this browser.
    ========================================================================== */
 (() => {
   "use strict";
-
-  const D = window.REPORT_DATA;
-  const C = D.company;
-  const COGS = C.cogsCategory || "Cost of goods";
 
   /* ---------- DOM helpers ---------- */
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -18,6 +15,7 @@
     for (const [k, v] of Object.entries(props || {})) {
       if (v == null || v === false) continue;
       if (k === "class") el.className = v;
+      else if (k === "value") el.value = v;
       else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
       else el.setAttribute(k, v === true ? "" : v);
     }
@@ -48,10 +46,12 @@
     advances: '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
     settlement: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>',
     payments: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/>',
+    sheet: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/>',
     check: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     alertTri: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
     alertCircle: '<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>',
     xCircle: '<circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/>',
     circle: '<circle cx="12" cy="12" r="8"/>',
     arrowUp: '<path d="M12 19V5M5 12l7-7 7 7"/>',
@@ -60,6 +60,10 @@
     arrowOut: '<path d="M7 17 17 7M7 7h10v10"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
     download: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
+    upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
+    code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
     printer: '<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/>',
   };
   function icon(name) {
@@ -68,69 +72,130 @@
     return t.content.firstChild;
   }
 
-  /* ---------- formatting ---------- */
-  const LOC = C.locale || "en-US";
-  const CUR = C.currency || "USD";
-  const fMoney = new Intl.NumberFormat(LOC, { style: "currency", currency: CUR, maximumFractionDigits: 0 });
-  const fMoneyC = new Intl.NumberFormat(LOC, { style: "currency", currency: CUR, notation: "compact", maximumFractionDigits: 1 });
-  const fNum = new Intl.NumberFormat(LOC);
-  const fPct = new Intl.NumberFormat(LOC, { style: "percent", maximumFractionDigits: 1 });
-  const fDate = new Intl.DateTimeFormat(LOC, { day: "numeric", month: "short", year: "numeric" });
+  /* ---------- data store ---------- */
+  const SAMPLE = window.REPORT_DATA || { company: {} };
+  const STORE_KEY = "cr-sheet-v2";
+  const DATASETS = ["leads", "sales", "expenses", "advances", "settlements", "payments"];
+  const clone = (o) => JSON.parse(JSON.stringify(o));
 
-  const money = (n) => fMoney.format(Math.round(n));
+  function normalize(d) {
+    const out = clone(d || {});
+    out.company = { ...(SAMPLE.company || {}), ...(out.company || {}) };
+    for (const k of DATASETS) if (!Array.isArray(out[k])) out[k] = [];
+    return out;
+  }
+  let LOCAL = false;
+  function loadData() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) { LOCAL = true; return normalize(JSON.parse(raw)); }
+    } catch (e) { /* storage unavailable or corrupt */ }
+    LOCAL = false;
+    return normalize(SAMPLE);
+  }
+  let D = loadData();
+  let dirty = false;
+  function saveData() {
+    LOCAL = true;
+    dirty = true;
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(D)); } catch (e) { toast("Could not save in this browser (storage is blocked). Export to Excel to keep your changes."); }
+  }
+  function discardLocal() {
+    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
+    D = normalize(SAMPLE);
+    LOCAL = false;
+    dirty = true;
+  }
+
+  /* ---------- formatting & period model (rebuilt when data changes) ---------- */
+  let C, COGS, LOC, CUR, fMoney, fMoneyC, fNum, fPct, fDate;
+  let MONTHS = [], N = 0, MONTH_INDEX = new Map(), PRESETS = [], SERIES = {};
+
+  const money = (n) => fMoney.format(Math.round(Number(n) || 0));
   const moneyC = (n) => (Math.abs(n) < 10000 ? fMoney.format(Math.round(n)) : fMoneyC.format(n));
   const minus = (n) => (n > 0 ? "−" + money(n) : money(0));
   const num = (n) => fNum.format(n);
   const pct = (n) => (Number.isFinite(n) ? fPct.format(n) : "—");
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const parseD = (str) => { const [y, m, d] = String(str).split("-").map(Number); return new Date(y, m - 1, d || 1); };
-  const fdate = (str) => fDate.format(parseD(str));
+  const fdate = (str) => (isoRe.test(String(str)) ? fDate.format(parseD(str)) : String(str || "—"));
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const toISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
   const sum = (arr, f = (x) => x.amount) => arr.reduce((a, x) => a + (Number(f(x)) || 0), 0);
   function groupSum(arr, keyFn, valFn = (x) => x.amount) {
     const m = new Map();
-    for (const x of arr) { const k = keyFn(x); m.set(k, (m.get(k) || 0) + valFn(x)); }
+    for (const x of arr) { const k = keyFn(x) || "(blank)"; m.set(k, (m.get(k) || 0) + (Number(valFn(x)) || 0)); }
     return m;
   }
 
-  /* ---------- period model ---------- */
-  const pStart = parseD(C.periodStart);
-  const pEnd = parseD(C.periodEnd);
-  const MONTHS = [];
-  for (let d = new Date(pStart.getFullYear(), pStart.getMonth(), 1); d <= pEnd; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
-    MONTHS.push({
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-      short: d.toLocaleDateString(LOC, { month: "short" }),
-      long: d.toLocaleDateString(LOC, { month: "long", year: "numeric" }),
-      y: d.getFullYear(),
-      q: Math.floor(d.getMonth() / 3) + 1,
+  function buildModel() {
+    C = D.company;
+    const raw = C.cogsCategories ?? C.cogsCategory ?? [];
+    COGS = new Set((Array.isArray(raw) ? raw : String(raw).split(",")).map((x) => String(x).trim()).filter(Boolean));
+
+    LOC = C.locale || "en-US";
+    CUR = String(C.currency || "ETB").trim().toUpperCase();
+    try { new Intl.NumberFormat(LOC); } catch (e) { LOC = "en-US"; }
+    try { new Intl.NumberFormat(LOC, { style: "currency", currency: CUR }); } catch (e) { CUR = "ETB"; }
+    fMoney = new Intl.NumberFormat(LOC, { style: "currency", currency: CUR, maximumFractionDigits: 0 });
+    fMoneyC = new Intl.NumberFormat(LOC, { style: "currency", currency: CUR, notation: "compact", maximumFractionDigits: 1 });
+    fNum = new Intl.NumberFormat(LOC);
+    fPct = new Intl.NumberFormat(LOC, { style: "percent", maximumFractionDigits: 1 });
+    fDate = new Intl.DateTimeFormat(LOC, { day: "numeric", month: "short", year: "numeric" });
+
+    // Period: settings first, otherwise the span of the data
+    let start = isoRe.test(C.periodStart || "") ? parseD(C.periodStart) : null;
+    let end = isoRe.test(C.periodEnd || "") ? parseD(C.periodEnd) : null;
+    if (!start || !end || end < start) {
+      const dates = DATASETS.flatMap((k) => D[k].map((r) => r.date || r.settlementDate)).filter((x) => isoRe.test(String(x))).sort();
+      const today = new Date();
+      start = dates.length ? parseD(dates[0]) : new Date(today.getFullYear(), 0, 1);
+      end = dates.length ? parseD(dates[dates.length - 1]) : today;
+    }
+    MONTHS = [];
+    for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d <= end && MONTHS.length < 60; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      MONTHS.push({
+        key: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`,
+        short: d.toLocaleDateString(LOC, { month: "short" }),
+        long: d.toLocaleDateString(LOC, { month: "long", year: "numeric" }),
+        y: d.getFullYear(),
+        q: Math.floor(d.getMonth() / 3) + 1,
+      });
+    }
+    N = MONTHS.length;
+    MONTH_INDEX = new Map(MONTHS.map((m, i) => [m.key, i]));
+    const multiYear = MONTHS[0].y !== MONTHS[N - 1].y;
+    const ytd = !multiYear && start.getMonth() === 0;
+
+    PRESETS = [{ id: "all", label: ytd ? "Year to date" : "All", long: ytd ? "Year to date" : "Full period", idx: MONTHS.map((_, i) => i), prev: null }];
+    const qMap = new Map();
+    MONTHS.forEach((m, i) => {
+      const id = `${m.y}-Q${m.q}`;
+      if (!qMap.has(id)) qMap.set(id, { id, label: multiYear ? `Q${m.q} ${m.y}` : `Q${m.q}`, long: `Q${m.q} ${m.y}`, idx: [] });
+      qMap.get(id).idx.push(i);
     });
+    const quarters = [...qMap.values()];
+    quarters.forEach((q, i) => (q.prev = quarters[i - 1] || null));
+    if (quarters.length > 1) PRESETS.push(...quarters);
+
+    if (state.month != null && state.month >= N) state.month = null;
+    if (!PRESETS.some((p) => p.id === state.preset)) state.preset = "all";
+
+    SERIES = {
+      sales: monthly(D.sales),
+      expenses: monthly(D.expenses),
+      leads: monthly(D.leads, () => true, () => 1),
+      cashIn: monthly(D.payments, (p) => p.direction === "In" && p.status === "Completed"),
+      cashOut: monthly(D.payments, (p) => p.direction === "Out" && p.status === "Completed"),
+    };
   }
-  const N = MONTHS.length;
-  const multiYear = MONTHS[0].y !== MONTHS[N - 1].y;
-  const MONTH_INDEX = new Map(MONTHS.map((m, i) => [m.key, i]));
 
   function rangeLabel(idx) {
     const a = MONTHS[idx[0]], b = MONTHS[idx[idx.length - 1]];
     if (a === b) return a.long;
     return a.y === b.y ? `${a.short} – ${b.short} ${b.y}` : `${a.short} ${a.y} – ${b.short} ${b.y}`;
   }
-
-  const PRESETS = [{
-    id: "all",
-    label: !multiYear && pStart.getMonth() === 0 ? "Year to date" : "All",
-    long: !multiYear && pStart.getMonth() === 0 ? "Year to date" : "Full period",
-    idx: MONTHS.map((_, i) => i),
-    prev: null,
-  }];
-  const qMap = new Map();
-  MONTHS.forEach((m, i) => {
-    const id = `${m.y}-Q${m.q}`;
-    if (!qMap.has(id)) qMap.set(id, { id, label: multiYear ? `Q${m.q} ${m.y}` : `Q${m.q}`, long: `Q${m.q} ${m.y}`, idx: [] });
-    qMap.get(id).idx.push(i);
-  });
-  const QUARTERS = [...qMap.values()];
-  QUARTERS.forEach((q, i) => (q.prev = QUARTERS[i - 1] || null));
-  PRESETS.push(...QUARTERS);
 
   const state = { preset: "all", month: null, fs: null };
   let SEL = null;
@@ -161,7 +226,7 @@
     for (const r of rows) {
       if (!filter(r)) continue;
       const i = MONTH_INDEX.get(String(r[field]).slice(0, 7));
-      if (i != null) out[i] += val(r);
+      if (i != null) out[i] += Number(val(r)) || 0;
     }
     return out;
   }
@@ -173,7 +238,7 @@
     const pays = inK(D.payments, keys);
     const revenue = sum(sales);
     const expenses = sum(exps);
-    const cogs = sum(exps.filter((e) => e.category === COGS));
+    const cogs = sum(exps.filter((e) => COGS.has(e.category)));
     const won = leads.filter((l) => l.stage === "Won");
     const lost = leads.filter((l) => l.stage === "Lost");
     const recv = pays.filter((p) => p.direction === "In" && p.status !== "Completed");
@@ -191,15 +256,6 @@
       recvCount: recv.length,
     };
   }
-
-  // Monthly series (full period — charts show context and highlight the selection)
-  const SERIES = {
-    sales: monthly(D.sales),
-    expenses: monthly(D.expenses),
-    leads: monthly(D.leads, () => true, () => 1),
-    cashIn: monthly(D.payments, (p) => p.direction === "In" && p.status === "Completed"),
-    cashOut: monthly(D.payments, (p) => p.direction === "Out" && p.status === "Completed"),
-  };
 
   /* ---------- small components ---------- */
   function deltaChip(cur, prev, { upGood = true, pts = false } = {}) {
@@ -234,11 +290,11 @@
   const STATUS_ICON = { good: "check", warning: "clock", serious: "alertTri", critical: "alertCircle", neutral: "circle" };
   function badge(text) {
     const tone = STATUS[text] || "neutral";
-    return h("span", { class: `badge ${tone}` }, icon(text === "Lost" ? "xCircle" : STATUS_ICON[tone]), text);
+    return h("span", { class: `badge ${tone}` }, icon(text === "Lost" ? "xCircle" : STATUS_ICON[tone]), text || "—");
   }
 
-  const OPEN_STAGES = ["New", "Contacted", "Qualified", "Proposal"];
-  const STAGES = [...OPEN_STAGES, "Won", "Lost"];
+  const STAGES = ["New inquiry", "Site measured", "Design & quote", "Negotiation", "Won", "Lost"];
+  const OPEN_STAGES = STAGES.slice(0, 4);
   function stageCell(stage) {
     if (stage === "Won" || stage === "Lost") return badge(stage);
     const i = OPEN_STAGES.indexOf(stage);
@@ -247,10 +303,10 @@
       stage);
   }
   const dirCell = (d) => h("span", { class: `dir ${d === "In" ? "in" : "out"}` }, h("i", {}, icon(d === "In" ? "arrowIn" : "arrowOut")), d === "In" ? "In" : "Out");
-  const meterCell = (p) => h("span", { class: "meter-cell" }, h("span", { class: "meter sm", "aria-hidden": "true" }, h("span", { style: `--p:${Math.max(0, Math.min(1, p)).toFixed(4)}` })), pct(p));
+  const meterCell = (p) => h("span", { class: "meter-cell" }, h("span", { class: "meter sm", "aria-hidden": "true" }, h("span", { style: `--p:${Math.max(0, Math.min(1, p || 0)).toFixed(4)}` })), pct(p));
   const twoLine = (a, b) => [h("span", { class: "strong" }, a), h("span", { class: "sub" }, b)];
 
-  function emptyState(title = "Nothing in this period", text = "Choose a wider period to see data here.") {
+  function emptyState(title = "Nothing in this period", text = "Choose a wider period, or add records in the Data sheet.") {
     return h("div", { class: "empty" }, h("strong", {}, title), text);
   }
 
@@ -261,7 +317,7 @@
       it.foot ? h("span", { class: "stat-foot" }, it.foot) : null)));
   }
 
-  /* ---------- tooltip ---------- */
+  /* ---------- tooltip & toast ---------- */
   const tip = $("#tooltip");
   function showTip(x, y, title, rows) {
     tip.replaceChildren(
@@ -286,6 +342,20 @@
   }
   addEventListener("scroll", hideTip, { passive: true });
 
+  const toastEl = $("#toast");
+  let toastTimer = 0;
+  function toast(text, action) {
+    clearTimeout(toastTimer);
+    toastEl.replaceChildren(h("span", {}, text));
+    if (action) {
+      const b = h("button", { type: "button" }, action.label);
+      b.addEventListener("click", () => { toastEl.hidden = true; action.run(); });
+      toastEl.append(b);
+    }
+    toastEl.hidden = false;
+    toastTimer = setTimeout(() => (toastEl.hidden = true), action ? 7000 : 4000);
+  }
+
   /* ---------- charts ---------- */
   function niceScale(max, count = 4, integer = false) {
     if (!(max > 0)) max = integer ? count : 1;
@@ -298,6 +368,8 @@
     for (let v = 0; v <= top + step / 2; v += step) ticks.push(v);
     return { top, ticks };
   }
+  // left margin that fits the widest tick label
+  const tickRoom = (ticks, fmt) => Math.max(34, Math.max(...ticks.map((t) => fmt(t).length)) * 6.4 + 12);
 
   function colPath(x, yTop, w, yBase) {
     const hgt = yBase - yTop;
@@ -313,7 +385,7 @@
       svg.append(s("text", { class: "tick", x: m.l - 8, y: yy + 4, "text-anchor": "end" }, fmtTick(t)));
     }
     const partial = selected.size < N;
-    const every = step < 30 ? 2 : 1;
+    const every = Math.max(1, Math.ceil(30 / step));
     MONTHS.forEach((mo, i) => {
       if (i % every && !(partial && selected.has(i))) return;
       svg.append(s("text", {
@@ -326,10 +398,11 @@
   function drawLine(el, { series, selected, fmt, fmtTick, extraRows, label }) {
     const W = Math.max(el.clientWidth - 18, 260), H = 272;
     const narrow = W < 520;
-    const m = { t: 16, r: narrow ? 12 : 62, b: 30, l: 52 };
+    const { top, ticks } = niceScale(Math.max(0, ...series.flatMap((se) => se.values)));
+    const endRoom = Math.max(...series.map((se) => fmtTick(se.values[N - 1]).length)) * 6.8 + 16;
+    const m = { t: 16, r: narrow ? 12 : endRoom, b: 30, l: tickRoom(ticks, fmtTick) };
     const pw = W - m.l - m.r, ph = H - m.t - m.b, step = pw / N;
     const x = (i) => m.l + step * (i + 0.5);
-    const { top, ticks } = niceScale(Math.max(0, ...series.flatMap((se) => se.values)));
     const y = (v) => m.t + ph - (v / top) * ph;
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": label });
 
@@ -397,13 +470,13 @@
 
   function drawColumns(el, { series, selected, fmt, fmtTick, integer = false, extraRows, label }) {
     const W = Math.max(el.clientWidth - 18, 260), H = 252;
-    const m = { t: 22, r: 10, b: 30, l: 48 };
+    const maxV = Math.max(0, ...series.flatMap((se) => se.values));
+    const { top, ticks } = niceScale(maxV, 4, integer);
+    const m = { t: 22, r: 10, b: 30, l: tickRoom(ticks, fmtTick) };
     const pw = W - m.l - m.r, ph = H - m.t - m.b, step = pw / N;
     const k = series.length, gap = 2;
     const colW = Math.max(3, Math.min(24, (step * 0.62 - gap * (k - 1)) / k));
     const groupW = colW * k + gap * (k - 1);
-    const maxV = Math.max(0, ...series.flatMap((se) => se.values));
-    const { top, ticks } = niceScale(maxV, 4, integer);
     const y = (v) => m.t + ph - (v / top) * ph;
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": label });
     axes(svg, { m, W, ph, ticks, y, fmtTick, selected, step });
@@ -473,7 +546,7 @@
         if (it.extra) r.push(...it.extra);
         return r;
       };
-      const bar = h("div", { class: `hb-bar k-${k}`, style: `--p:${(it.value / max).toFixed(4)}` });
+      const bar = h("div", { class: `hb-bar k-${k}`, style: `--p:${Math.max(0, it.value / max).toFixed(4)}` });
       const row = h("div", { class: "hb-row", tabindex: 0, role: "listitem", "aria-label": `${it.label}: ${tipFmt(it.value)}` },
         h("div", { class: "hb-label", title: it.label }, it.label),
         h("div", { class: "hb-track" }, bar, h("span", { class: "hb-val" }, fmt(it.value))));
@@ -511,7 +584,7 @@
     else tbl.replaceChildren(simpleTable(def.table()));
   }
 
-  /* ---------- data tables ---------- */
+  /* ---------- report tables ---------- */
   class DataTable {
     constructor(root, cfg) {
       this.root = root;
@@ -614,122 +687,131 @@
       const esc = (v) => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
       const lines = [cols.map((c) => esc(c.label)).join(",")];
       for (const r of this.filtered()) lines.push(cols.map((c) => esc(c.csv ? c.csv(r) : r[c.key])).join(","));
-      const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-      const a = h("a", { href: URL.createObjectURL(blob), download: `${this.cfg.name}-${SEL.short.replace(/\s+/g, "-").toLowerCase()}.csv` });
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      download(`${this.cfg.name}-${SEL.short.replace(/\s+/g, "-").toLowerCase()}.csv`, "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
     }
   }
 
-  const uniq = (arr, key) => [...new Set(arr.map((x) => x[key]))].sort();
+  function download(name, content, type) {
+    const blob = content instanceof Blob ? content : new Blob([content], { type });
+    const a = h("a", { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  }
+
+  const uniq = (arr, key) => [...new Set(arr.map((x) => x[key]).filter((v) => v !== "" && v != null))].sort();
   const totalSummary = (label = "Total") => (rows) => [`${label} `, h("strong", {}, money(sum(rows)))];
 
-  const TABLES = {
-    leads: new DataTable($("#leads-table"), {
-      name: "leads", placeholder: "Search contact, company or ID",
-      search: ["id", "contact", "company", "owner"],
-      filters: [
-        { key: "stage", label: "Stage", options: STAGES },
-        { key: "source", label: "Source", options: uniq(D.leads, "source") },
-        { key: "owner", label: "Owner", options: uniq(D.leads, "owner") },
-      ],
-      sort: { key: "date", dir: -1 },
-      columns: [
-        { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
-        { key: "id", label: "ID", cls: "id" },
-        { key: "contact", label: "Contact", cell: (r) => twoLine(r.contact, r.company) },
-        { key: "source", label: "Source" },
-        { key: "stage", label: "Stage", cell: (r) => stageCell(r.stage), sortVal: (r) => STAGES.indexOf(r.stage) },
-        { key: "owner", label: "Owner" },
-        { key: "value", label: "Est. value", num: true, cell: (r) => money(r.value) },
-      ],
-      summary: (rows) => ["Total est. value ", h("strong", {}, money(sum(rows, (r) => r.value)))],
-    }),
-    sales: new DataTable($("#sales-table"), {
-      name: "sales-invoices", placeholder: "Search invoice or customer",
-      search: ["id", "customer", "category"],
-      filters: [
-        { key: "category", label: "Category", plural: "categories", options: uniq(D.sales, "category") },
-        { key: "status", label: "Status", plural: "statuses", options: ["Paid", "Partially paid", "Unpaid"] },
-      ],
-      sort: { key: "date", dir: -1 },
-      columns: [
-        { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
-        { key: "id", label: "Invoice", cls: "id" },
-        { key: "customer", label: "Customer", cls: "strong" },
-        { key: "category", label: "Category" },
-        { key: "status", label: "Status", cell: (r) => badge(r.status) },
-        { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
-      ],
-      summary: totalSummary("Total invoiced"),
-    }),
-    expenses: new DataTable($("#expense-table"), {
-      name: "expenses", placeholder: "Search vendor, description or ID",
-      search: ["id", "vendor", "description", "category"],
-      filters: [{ key: "category", label: "Category", plural: "categories", options: uniq(D.expenses, "category") }],
-      sort: { key: "date", dir: -1 },
-      columns: [
-        { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
-        { key: "id", label: "ID", cls: "id" },
-        { key: "category", label: "Category", cls: "strong" },
-        { key: "description", label: "Description" },
-        { key: "vendor", label: "Vendor / payee" },
-        { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
-      ],
-      summary: totalSummary("Total spend"),
-    }),
-    advances: new DataTable($("#advance-table"), {
-      name: "advances", placeholder: "Search party or reference",
-      search: ["id", "party", "reference"],
-      tabs: { key: "type", label: "Advance type", options: [{ value: "All", label: "All" }, { value: "Received", label: "Received from clients" }, { value: "Paid", label: "Paid to suppliers" }] },
-      sort: { key: "date", dir: -1 },
-      columns: [
-        { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
-        { key: "id", label: "ID", cls: "id" },
-        { key: "type", label: "Type", cell: (r) => dirCell(r.type === "Received" ? "In" : "Out"), csv: (r) => r.type },
-        { key: "party", label: "Party / reference", cell: (r) => twoLine(r.party, r.reference) },
-        { key: "contractValue", label: "Contract value", num: true, cell: (r) => money(r.contractValue) },
-        { key: "amount", label: "Advance", num: true, cell: (r) => [h("span", { class: "strong" }, money(r.amount)), h("span", { class: "sub" }, `${pct(r.share)} of contract`)] },
-        { key: "recPct", label: "Recovered", cell: (r) => meterCell(r.recPct) },
-        { key: "balance", label: "Balance", num: true, cell: (r) => money(r.balance) },
-        { key: "status", label: "Status", cell: (r) => badge(r.status) },
-      ],
-      summary: (rows) => ["Advances ", h("strong", {}, money(sum(rows))), " · unrecovered ", h("strong", {}, money(sum(rows, (r) => r.balance)))],
-    }),
-    payments: new DataTable($("#payment-table"), {
-      name: "payments", placeholder: "Search party, reference or ID",
-      search: ["id", "party", "reference", "type", "method"],
-      tabs: { key: "direction", label: "Direction", options: [{ value: "All", label: "All" }, { value: "In", label: "Money in" }, { value: "Out", label: "Money out" }] },
-      filters: [
-        { key: "status", label: "Status", plural: "statuses", options: ["Completed", "Pending", "Overdue"] },
-        { key: "type", label: "Type", options: uniq(D.payments, "type") },
-      ],
-      sort: { key: "date", dir: -1 },
-      pageSize: 10,
-      columns: [
-        { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
-        { key: "id", label: "ID", cls: "id" },
-        { key: "direction", label: "Direction", cell: (r) => dirCell(r.direction) },
-        { key: "party", label: "Party / type", cell: (r) => twoLine(r.party, r.type) },
-        { key: "reference", label: "Reference", cls: "id" },
-        { key: "method", label: "Method" },
-        { key: "status", label: "Status", cell: (r) => badge(r.status) },
-        { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
-      ],
-      summary: (rows) => {
-        const i = sum(rows.filter((r) => r.direction === "In")), o = sum(rows.filter((r) => r.direction === "Out"));
-        return ["In ", h("strong", {}, money(i)), " · Out ", h("strong", {}, money(o))];
-      },
-    }),
-  };
+  let TABLES = {};
+  function buildTables() {
+    TABLES = {
+      leads: new DataTable($("#leads-table"), {
+        name: "leads", placeholder: "Search contact, customer or ID",
+        search: ["id", "contact", "company", "owner", "source"],
+        filters: [
+          { key: "stage", label: "Stage", options: STAGES },
+          { key: "source", label: "Source", options: uniq(D.leads, "source") },
+          { key: "owner", label: "Sales rep", plural: "sales reps", options: uniq(D.leads, "owner") },
+        ],
+        sort: { key: "date", dir: -1 },
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
+          { key: "id", label: "ID", cls: "id" },
+          { key: "contact", label: "Contact", cell: (r) => twoLine(r.contact, r.company) },
+          { key: "source", label: "Source" },
+          { key: "stage", label: "Stage", cell: (r) => stageCell(r.stage), sortVal: (r) => STAGES.indexOf(r.stage) },
+          { key: "owner", label: "Sales rep" },
+          { key: "value", label: "Est. value", num: true, cell: (r) => money(r.value) },
+        ],
+        summary: (rows) => ["Total est. value ", h("strong", {}, money(sum(rows, (r) => r.value)))],
+      }),
+      sales: new DataTable($("#sales-table"), {
+        name: "sales-invoices", placeholder: "Search invoice, customer or product",
+        search: ["id", "customer", "category"],
+        filters: [
+          { key: "category", label: "Product", options: uniq(D.sales, "category") },
+          { key: "status", label: "Status", plural: "statuses", options: ["Paid", "Partially paid", "Unpaid"] },
+        ],
+        sort: { key: "date", dir: -1 },
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
+          { key: "id", label: "Invoice", cls: "id" },
+          { key: "customer", label: "Customer", cls: "strong" },
+          { key: "category", label: "Product" },
+          { key: "status", label: "Status", cell: (r) => badge(r.status) },
+          { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
+        ],
+        summary: totalSummary("Total invoiced"),
+      }),
+      expenses: new DataTable($("#expense-table"), {
+        name: "expenses", placeholder: "Search vendor, description or ID",
+        search: ["id", "vendor", "description", "category"],
+        filters: [{ key: "category", label: "Category", plural: "categories", options: uniq(D.expenses, "category") }],
+        sort: { key: "date", dir: -1 },
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
+          { key: "id", label: "ID", cls: "id" },
+          { key: "category", label: "Category", cls: "strong" },
+          { key: "description", label: "Description" },
+          { key: "vendor", label: "Vendor / payee" },
+          { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
+        ],
+        summary: totalSummary("Total spend"),
+      }),
+      advances: new DataTable($("#advance-table"), {
+        name: "advances", placeholder: "Search party or reference",
+        search: ["id", "party", "reference"],
+        tabs: { key: "type", label: "Advance type", options: [{ value: "All", label: "All" }, { value: "Received", label: "Customer deposits" }, { value: "Paid", label: "Paid to suppliers" }] },
+        sort: { key: "date", dir: -1 },
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
+          { key: "id", label: "ID", cls: "id" },
+          { key: "type", label: "Type", cell: (r) => dirCell(r.type === "Received" ? "In" : "Out"), csv: (r) => r.type },
+          { key: "party", label: "Party / reference", cell: (r) => twoLine(r.party, r.reference) },
+          { key: "contractValue", label: "Contract value", num: true, cell: (r) => money(r.contractValue) },
+          { key: "amount", label: "Advance", num: true, cell: (r) => [h("span", { class: "strong" }, money(r.amount)), h("span", { class: "sub" }, `${pct(r.share)} of contract`)] },
+          { key: "recPct", label: "Recovered", cell: (r) => meterCell(r.recPct) },
+          { key: "balance", label: "Balance", num: true, cell: (r) => money(r.balance) },
+          { key: "status", label: "Status", cell: (r) => badge(r.status) },
+        ],
+        summary: (rows) => ["Advances ", h("strong", {}, money(sum(rows))), " · unrecovered ", h("strong", {}, money(sum(rows, (r) => r.balance)))],
+      }),
+      payments: new DataTable($("#payment-table"), {
+        name: "payments", placeholder: "Search party, reference or ID",
+        search: ["id", "party", "reference", "type", "method"],
+        tabs: { key: "direction", label: "Direction", options: [{ value: "All", label: "All" }, { value: "In", label: "Money in" }, { value: "Out", label: "Money out" }] },
+        filters: [
+          { key: "status", label: "Status", plural: "statuses", options: ["Completed", "Pending", "Overdue"] },
+          { key: "type", label: "Type", options: uniq(D.payments, "type") },
+          { key: "method", label: "Method", options: uniq(D.payments, "method").filter((x) => x !== "—") },
+        ],
+        sort: { key: "date", dir: -1 },
+        pageSize: 10,
+        columns: [
+          { key: "date", label: "Date", cell: (r) => fdate(r.date), cls: "muted" },
+          { key: "id", label: "ID", cls: "id" },
+          { key: "direction", label: "Direction", cell: (r) => dirCell(r.direction) },
+          { key: "party", label: "Party / type", cell: (r) => twoLine(r.party, r.type) },
+          { key: "reference", label: "Reference", cls: "id" },
+          { key: "method", label: "Method" },
+          { key: "status", label: "Status", cell: (r) => badge(r.status) },
+          { key: "amount", label: "Amount", num: true, cell: (r) => money(r.amount) },
+        ],
+        summary: (rows) => {
+          const i = sum(rows.filter((r) => r.direction === "In")), o = sum(rows.filter((r) => r.direction === "Out"));
+          return ["In ", h("strong", {}, money(i)), " · Out ", h("strong", {}, money(o))];
+        },
+      }),
+    };
+  }
 
-  /* ---------- sections ---------- */
+  /* ---------- report sections ---------- */
   const V = {}; // view-model shared with chart draw functions
 
   function renderOverview() {
     const M = metrics(SEL.keys);
     const P = SEL.prev ? metrics(SEL.prev.keys) : null;
     V.M = M;
+    V.P = P;
 
     const spark = h("div", { class: "hero-spark-bars" });
     $("#hero").replaceChildren(
@@ -762,9 +844,9 @@
       h("p", { class: "card-sub" }, SEL.range),
       h("div", { class: "pnl-rows" },
         row("Revenue", money(M.revenue)),
-        row("Cost of goods sold", minus(M.cogs)),
+        row("Materials (cost of goods)", minus(M.cogs)),
         row("Gross profit", money(M.gross), "sub", M.revenue ? M.gross / M.revenue : null),
-        row("Operating expenses", minus(M.opex)),
+        row("Workshop & overheads", minus(M.opex)),
         row("Net profit", M.net < 0 ? "−" + money(-M.net) : money(M.net), "net")),
       h("div", { class: "pnl-meter" },
         h("div", { class: "pnl-meter-cap" }, h("span", {}, "Net margin"), h("strong", {}, pct(margin))),
@@ -773,8 +855,7 @@
   }
 
   function renderLeads() {
-    const M = V.M;
-    const P = SEL.prev ? metrics(SEL.prev.keys) : null;
+    const { M, P } = V;
     const open = M.leads.filter((l) => OPEN_STAGES.includes(l.stage));
     const wonValue = sum(M.won, (l) => l.value);
     statStrip($("#leads-stats"), [
@@ -785,26 +866,23 @@
       { label: "Avg. won deal", value: M.won.length ? moneyC(wonValue / M.won.length) : "—", foot: "Estimated value" },
     ]);
 
-    const byStage = STAGES.map((st) => {
+    V.stages = STAGES.map((st) => {
       const rows = M.leads.filter((l) => l.stage === st);
       return { label: st, value: rows.length, muted: st === "Lost", extra: [{ value: money(sum(rows, (l) => l.value)), label: "est. value" }] };
     });
-    V.stages = byStage;
-    const bySource = [...groupSum(M.leads, (l) => l.source, () => 1)].map(([label, value]) => {
-      const won = M.leads.filter((l) => l.source === label && l.stage === "Won").length;
+    V.sources = [...groupSum(M.leads, (l) => l.source, () => 1)].map(([label, value]) => {
+      const won = M.leads.filter((l) => (l.source || "(blank)") === label && l.stage === "Won").length;
       return { label, value, extra: [{ value: num(won), label: `won (${pct(won / value)})` }] };
     }).sort((a, b) => b.value - a.value);
-    V.sources = bySource;
     V.reps = [...groupSum(M.won, (l) => l.owner, (l) => l.value)].map(([label, value]) => ({
-      label, value, extra: [{ value: num(M.won.filter((l) => l.owner === label).length), label: "deals won" }],
+      label, value, extra: [{ value: num(M.won.filter((l) => (l.owner || "(blank)") === label).length), label: "deals won" }],
     })).sort((a, b) => b.value - a.value);
 
     TABLES.leads.setRows(M.leads);
   }
 
   function renderSales() {
-    const M = V.M;
-    const P = SEL.prev ? metrics(SEL.prev.keys) : null;
+    const { M, P } = V;
     const ids = new Set(M.sales.map((x) => x.id));
     const outstanding = sum(D.payments.filter((p) => p.type === "Invoice" && p.status !== "Completed" && ids.has(p.reference)));
     const paidFull = M.sales.filter((x) => x.status === "Paid").length;
@@ -816,41 +894,41 @@
       { label: "Still to collect", value: moneyC(outstanding), title: money(outstanding), foot: "On this period's invoices" },
     ]);
     V.categories = [...groupSum(M.sales, (x) => x.category)].map(([label, value]) => ({
-      label, value, extra: [{ value: num(M.sales.filter((x) => x.category === label).length), label: "invoices" }],
+      label, value, extra: [{ value: num(M.sales.filter((x) => (x.category || "(blank)") === label).length), label: "invoices" }],
     })).sort((a, b) => b.value - a.value);
     V.customers = [...groupSum(M.sales, (x) => x.customer)].map(([label, value]) => ({
-      label, value, extra: [{ value: num(M.sales.filter((x) => x.customer === label).length), label: "invoices" }],
+      label, value, extra: [{ value: num(M.sales.filter((x) => (x.customer || "(blank)") === label).length), label: "invoices" }],
     })).sort((a, b) => b.value - a.value).slice(0, 7);
     TABLES.sales.setRows(M.sales);
   }
 
   function renderExpenses() {
-    const M = V.M;
-    const P = SEL.prev ? metrics(SEL.prev.keys) : null;
+    const { M, P } = V;
     const cats = [...groupSum(M.exps, (e) => e.category)].map(([label, value]) => ({
-      label, value, extra: [{ value: pct(value / (M.revenue || 1)), label: "of revenue" }],
+      label, value, extra: [{ value: pct(value / (M.revenue || 1)), label: "of revenue" }, COGS.has(label) ? { value: "Materials", label: "cost of goods" } : null].filter(Boolean),
     })).sort((a, b) => b.value - a.value);
     V.expenseCats = cats;
     const monthsInSel = SEL.idx.length;
     statStrip($("#expense-stats"), [
       { label: "Total expenses", value: moneyC(M.expenses), title: money(M.expenses), foot: compare(M.expenses, P && P.expenses, { upGood: false }) || SEL.range },
       { label: "Largest category", value: cats[0] ? cats[0].label : "—", title: cats[0] ? cats[0].label : null, foot: cats[0] ? `${money(cats[0].value)} · ${pct(cats[0].value / M.expenses)}` : "" },
-      { label: "Expenses ÷ revenue", value: M.revenue ? pct(M.expenses / M.revenue) : "—", foot: "Lower is better" },
+      { label: "Materials share", value: M.revenue ? pct(M.cogs / M.revenue) : "—", foot: "Materials ÷ revenue" },
       { label: "Avg. per month", value: moneyC(M.expenses / monthsInSel), title: money(M.expenses / monthsInSel), foot: `${monthsInSel} month${monthsInSel > 1 ? "s" : ""}` },
-      { label: "Entries", value: num(M.exps.length), foot: "Expense records" },
+      { label: "Expenses ÷ revenue", value: M.revenue ? pct(M.expenses / M.revenue) : "—", foot: "Lower is better" },
     ]);
     TABLES.expenses.setRows(M.exps);
   }
 
   function advanceRows(keys) {
     return inK(D.advances, keys).map((a) => {
-      const balance = Math.max(0, a.amount - a.recovered);
+      const amount = Number(a.amount) || 0, recovered = Number(a.recovered) || 0;
+      const balance = Math.max(0, amount - recovered);
       return {
         ...a,
         balance,
-        share: a.contractValue ? a.amount / a.contractValue : NaN,
-        recPct: a.amount ? a.recovered / a.amount : 0,
-        status: balance <= 0 ? "Fully recovered" : a.recovered > 0 ? "Partially recovered" : "Open",
+        share: Number(a.contractValue) ? amount / a.contractValue : NaN,
+        recPct: amount ? recovered / amount : 0,
+        status: amount && balance <= 0 ? "Fully recovered" : recovered > 0 ? "Partially recovered" : "Open",
       };
     });
   }
@@ -859,38 +937,39 @@
     const rows = advanceRows(SEL.keys);
     const rec = rows.filter((a) => a.type === "Received"), paid = rows.filter((a) => a.type === "Paid");
     statStrip($("#advance-stats"), [
-      { label: "Received from clients", value: moneyC(sum(rec)), title: money(sum(rec)), foot: `${num(rec.length)} advance${rec.length === 1 ? "" : "s"}` },
-      { label: "Client advances to recover", value: moneyC(sum(rec, (a) => a.balance)), title: money(sum(rec, (a) => a.balance)), foot: "Still to offset on invoices" },
+      { label: "Customer deposits", value: moneyC(sum(rec)), title: money(sum(rec)), foot: `${num(rec.length)} deposit${rec.length === 1 ? "" : "s"} received` },
+      { label: "Deposits not yet delivered", value: moneyC(sum(rec, (a) => a.balance)), title: money(sum(rec, (a) => a.balance)), foot: "Still to offset against work" },
       { label: "Paid to suppliers", value: moneyC(sum(paid)), title: money(sum(paid)), foot: `${num(paid.length)} purchase order${paid.length === 1 ? "" : "s"}` },
-      { label: "Supplier advances open", value: moneyC(sum(paid, (a) => a.balance)), title: money(sum(paid, (a) => a.balance)), foot: "Not yet offset on bills" },
+      { label: "Supplier advances open", value: moneyC(sum(paid, (a) => a.balance)), title: money(sum(paid, (a) => a.balance)), foot: "Goods not yet received" },
     ]);
     TABLES.advances.setRows(rows);
   }
 
   function fsCalc(f) {
-    const final = f.contractValue + f.variations;
-    const balance = final - f.advance - f.interimPaid - f.penalties;
-    const outstanding = Math.max(0, balance - f.amountPaid);
-    const collected = f.advance + f.interimPaid + f.amountPaid;
-    const due = final - f.penalties;
+    const n = (k) => Number(f[k]) || 0;
+    const final = n("contractValue") + n("variations");
+    const balance = final - n("advance") - n("interimPaid") - n("penalties");
+    const outstanding = Math.max(0, balance - n("amountPaid"));
+    const collected = n("advance") + n("interimPaid") + n("amountPaid");
+    const due = final - n("penalties");
     return { final, balance, outstanding, collected, due, pctCollected: due ? collected / due : 0 };
   }
 
   function renderSettlement() {
-    const list = inK(D.settlements, SEL.keys, "settlementDate").sort((a, b) => b.settlementDate.localeCompare(a.settlementDate));
+    const list = inK(D.settlements, SEL.keys, "settlementDate").sort((a, b) => String(b.settlementDate).localeCompare(String(a.settlementDate)));
     const calcs = list.map(fsCalc);
     const settled = list.filter((f) => f.status === "Settled").length;
     statStrip($("#settlement-stats"), [
       { label: "Projects closed", value: num(list.length), foot: `${num(settled)} fully settled` },
-      { label: "Final contract value", value: moneyC(sum(calcs, (c) => c.final)), title: money(sum(calcs, (c) => c.final)), foot: "Incl. approved variations" },
-      { label: "Collected to date", value: moneyC(sum(calcs, (c) => c.collected)), title: money(sum(calcs, (c) => c.collected)), foot: "Advance + interim + final" },
+      { label: "Final contract value", value: moneyC(sum(calcs, (c) => c.final)), title: money(sum(calcs, (c) => c.final)), foot: "Incl. extra work" },
+      { label: "Collected to date", value: moneyC(sum(calcs, (c) => c.collected)), title: money(sum(calcs, (c) => c.collected)), foot: "Deposit + interim + final" },
       { label: "Outstanding", value: moneyC(sum(calcs, (c) => c.outstanding)), title: money(sum(calcs, (c) => c.outstanding)), foot: "Balance still to receive" },
     ]);
 
     const listEl = $("#fs-list"), doc = $("#statement");
     if (!list.length) {
       listEl.replaceChildren();
-      doc.replaceChildren(emptyState("No final settlements in this period", "Pick a later quarter or Year to date to see closing statements."));
+      doc.replaceChildren(emptyState("No final settlements in this period", "Pick a later quarter or the full period, or add projects in the Data sheet."));
       return;
     }
     if (!list.some((f) => f.id === state.fs)) state.fs = list[0].id;
@@ -901,15 +980,15 @@
         h("span", { class: "fs-item-top" },
           h("span", {}, h("span", { class: "fs-item-name" }, f.project), h("br"), h("span", { class: "fs-item-client" }, f.client)),
           badge(f.status)),
-        h("span", { class: "meter", "aria-hidden": "true" }, h("span", { style: `--p:${Math.min(1, c.pctCollected).toFixed(4)}` })),
+        h("span", { class: "meter", "aria-hidden": "true" }, h("span", { style: `--p:${Math.max(0, Math.min(1, c.pctCollected)).toFixed(4)}` })),
         h("span", { class: "fs-item-amt" }, h("span", {}, `Final ${moneyC(c.final)}`), h("span", {}, c.outstanding > 0 ? `Due ${moneyC(c.outstanding)}` : "Nothing due")));
-      b.addEventListener("click", () => { state.fs = f.id; renderSettlement(); $(`.fs-item[data-id="${f.id}"]`).focus(); });
+      b.addEventListener("click", () => { state.fs = f.id; renderSettlement(); $(`.fs-item[data-id="${CSS.escape(f.id)}"]`).focus(); });
       b.addEventListener("keydown", (e) => {
         const d = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
         if (!d) return;
         e.preventDefault();
         const nx = list[Math.max(0, Math.min(list.length - 1, i + d))];
-        state.fs = nx.id; renderSettlement(); $(`.fs-item[data-id="${nx.id}"]`).focus();
+        state.fs = nx.id; renderSettlement(); $(`.fs-item[data-id="${CSS.escape(nx.id)}"]`).focus();
       });
       return b;
     });
@@ -930,17 +1009,17 @@
           h("p", { class: "st-company" }, `${C.name} → ${f.client}`)),
         h("div", { class: "st-no" }, h("span", { class: "id" }, f.id), badge(f.status), h("div", { class: "st-actions" }, printBtn))),
       h("div", { class: "st-meta" },
-        h("div", {}, h("span", {}, "Client"), h("strong", {}, f.client)),
-        h("div", {}, h("span", {}, "Contract start"), h("strong", {}, fdate(f.startDate))),
-        h("div", {}, h("span", {}, "Completion"), h("strong", {}, fdate(f.completionDate))),
+        h("div", {}, h("span", {}, "Customer"), h("strong", {}, f.client)),
+        h("div", {}, h("span", {}, "Order date"), h("strong", {}, fdate(f.startDate))),
+        h("div", {}, h("span", {}, "Installed"), h("strong", {}, fdate(f.completionDate))),
         h("div", {}, h("span", {}, "Settlement date"), h("strong", {}, fdate(f.settlementDate)))),
       h("div", { class: "st-lines" },
         line("Original contract value", money(f.contractValue)),
-        line("Add: approved variations", money(f.variations), "less"),
+        line("Add: design changes & extra work", money(f.variations), "less"),
         line("Final contract value", money(c.final), "total"),
-        line("Less: advance payment", minus(f.advance), "less", "Recovered through progress invoices"),
-        line("Less: interim payments received", minus(f.interimPaid), "less"),
-        line("Less: penalties & deductions", minus(f.penalties), "less"),
+        line("Less: customer deposit", minus(f.advance), "less", "Advance paid when the order was placed"),
+        line("Less: interim payments received", minus(f.interimPaid), "less", "On delivery / during installation"),
+        line("Less: delay penalties & discounts", minus(f.penalties), "less"),
         line("Balance due on final settlement", money(c.balance), "grand"),
         line("Paid against settlement", minus(f.amountPaid), "less outstanding"),
         line("Outstanding", money(c.outstanding), "outstanding")),
@@ -949,15 +1028,15 @@
           h("span", {}, "Collected ", h("strong", {}, money(c.collected)), ` of ${money(c.due)}`),
           h("strong", {}, pct(c.pctCollected))),
         h("div", { class: "meter", role: "meter", "aria-label": "Share collected", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": Math.round(c.pctCollected * 100) },
-          h("span", { style: `--p:${Math.min(1, c.pctCollected).toFixed(4)}` }))),
+          h("span", { style: `--p:${Math.max(0, Math.min(1, c.pctCollected)).toFixed(4)}` }))),
       h("div", { class: "st-sign" },
         h("div", {}, `Prepared by · ${C.preparedBy || ""}`),
         h("div", {}, "Approved by"),
-        h("div", {}, `Acknowledged by · ${f.client}`)));
+        h("div", {}, `Customer acknowledgement · ${f.client}`)));
   }
 
   function renderPayments() {
-    const M = V.M;
+    const { M } = V;
     const pend = M.pays.filter((p) => p.status === "Pending");
     const over = M.pays.filter((p) => p.status === "Overdue");
     const tile = (ic, cls, label, value, sub, title) => h("article", { class: "card status-tile" },
@@ -997,7 +1076,7 @@
     draw: (el) => drawColumns(el, { label: "New leads per month", series: [{ name: "New leads", key: "in", values: SERIES.leads }], selected: SEL.set, fmt: num, fmtTick: num, integer: true }),
     table: () => ({ head: ["Month", "New leads"], num: [1], rows: monthRows([(i) => num(SERIES.leads[i])]) }),
   });
-  chart("categories", { fluid: true, draw: (el) => drawHBars(el, V.categories, { fmt: moneyC, unit: "revenue" }), table: () => barTable(V.categories, "Category", money) });
+  chart("categories", { fluid: true, draw: (el) => drawHBars(el, V.categories, { fmt: moneyC, unit: "revenue" }), table: () => barTable(V.categories, "Product", money) });
   chart("customers", { fluid: true, draw: (el) => drawHBars(el, V.customers, { fmt: moneyC, unit: "invoiced", share: false }), table: () => barTable(V.customers, "Customer", money) });
   chart("expenseCats", { fluid: true, draw: (el) => drawHBars(el, V.expenseCats, { key: "out", fmt: moneyC, unit: "spent" }), table: () => barTable(V.expenseCats, "Category", money) });
   chart("expenseMonthly", {
@@ -1017,23 +1096,24 @@
     }),
   });
 
-  /* ---------- filter UI ---------- */
+  /* ---------- period filter ---------- */
   const seg = $("#period-seg");
   const monthSel = $("#month-select");
-  for (const p of PRESETS) {
-    const b = h("button", { type: "button", "data-id": p.id, "aria-pressed": "false" }, p.label);
-    b.addEventListener("click", () => { state.preset = p.id; state.month = null; render(); });
-    seg.append(b);
+  function buildFilterUI() {
+    seg.replaceChildren(...PRESETS.map((p) => {
+      const b = h("button", { type: "button", "data-id": p.id, "aria-pressed": "false" }, p.label);
+      b.addEventListener("click", () => { state.preset = p.id; state.month = null; render(); });
+      return b;
+    }));
+    monthSel.replaceChildren(h("option", { value: "" }, "Single month…"), ...MONTHS.map((m, i) => h("option", { value: String(i) }, m.long)));
   }
-  monthSel.append(h("option", { value: "" }, "Single month…"), ...MONTHS.map((m, i) => h("option", { value: String(i) }, m.long)));
   monthSel.addEventListener("change", () => { state.month = monthSel.value === "" ? null : Number(monthSel.value); render(); });
 
   function syncFilterUI() {
     $$("button", seg).forEach((b) => b.setAttribute("aria-pressed", String(state.month == null && b.dataset.id === state.preset)));
     monthSel.value = state.month == null ? "" : String(state.month);
     monthSel.classList.toggle("active", state.month != null);
-    const note = $("#filter-note");
-    note.replaceChildren("Showing ", h("strong", {}, state.month == null ? `${SEL.short} (${SEL.range})` : SEL.short),
+    $("#filter-note").replaceChildren("Showing ", h("strong", {}, state.month == null ? `${SEL.short} (${SEL.range})` : SEL.short),
       SEL.prev ? ` · compared with ${SEL.prev.label}` : "");
     try {
       const url = new URL(location.href);
@@ -1056,23 +1136,459 @@
     Object.keys(CHARTS).forEach(drawChart);
   }
 
-  /* ---------- static chrome ---------- */
-  function initChrome() {
-    document.title = `Commercial Report · ${C.name}`;
-    $("#company-name").textContent = C.name;
-    $("#foot-company").textContent = C.name;
-    $("#eyebrow").textContent = C.name;
+  function applyCompanyText() {
+    document.title = `Commercial Report · ${C.name || "Company"}`;
+    $("#company-name").textContent = C.name || "Company";
+    $("#foot-company").textContent = C.name || "Company";
+    $("#eyebrow").textContent = C.name || "Commercial report";
     $("#prepared-by").textContent = C.preparedBy || "—";
     $("#as-of").textContent = fdate(C.periodEnd);
     $("#lede").textContent = `${C.tagline || "Commercial report"} — leads, sales, expenses, advances, final settlements and payments for ${rangeLabel(PRESETS[0].idx)}.`;
-    $("#foot-period").textContent = `${fdate(C.periodStart)} – ${fdate(C.periodEnd)}`;
+    $("#foot-period").textContent = `${rangeLabel(PRESETS[0].idx)} · amounts in ${CUR}`;
+    $("#foot-note").textContent = D.sample
+      ? "Figures include sample data. Open the Data sheet to enter or import your own records."
+      : "Every number on this page is calculated from the Data sheet.";
+  }
 
+  function renderBanner() {
+    const el = $("#data-banner");
+    const openSheet = h("button", { class: "btn btn-sm", type: "button" }, icon("sheet"), "Open Data sheet");
+    openSheet.addEventListener("click", () => setView("sheet"));
+    if (LOCAL) {
+      const discard = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, "Discard my edits");
+      discard.addEventListener("click", () => {
+        if (!confirm("Discard all edits saved in this browser and go back to the published data?")) return;
+        discardLocal(); rebuildAll(); toast("Edits discarded. Showing the published data.");
+      });
+      el.className = "notice local report-only";
+      el.replaceChildren(icon("alertCircle"),
+        h("div", { class: "grow" }, h("strong", {}, "You're viewing your own edits. "), "They're saved in this browser only. To publish them, use Download data.js in the Data sheet."),
+        h("div", { class: "acts" }, openSheet, discard));
+      el.hidden = false;
+    } else if (D.sample) {
+      el.className = "notice report-only";
+      el.replaceChildren(icon("info"),
+        h("div", { class: "grow" }, h("strong", {}, "Sample data. "), "These figures are examples. Enter or import your own records in the Data sheet and the whole report updates."),
+        h("div", { class: "acts" }, openSheet));
+      el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+
+  function rebuildAll() {
+    buildModel();
+    applyCompanyText();
+    buildFilterUI();
+    buildTables();
+    render();
+    renderBanner();
+    dirty = false;
+  }
+
+  /* ==========================================================================
+     DATA SHEET — spreadsheet-style editor
+     ========================================================================== */
+  const col = (key, label, type = "text", w = 130, extra = {}) => ({ key, label, type, w, ...extra });
+  const SHEETS = [
+    { id: "leads", label: "Leads", prefix: "LD-", cols: [
+      col("id", "ID", "text", 96), col("date", "Date", "date", 140), col("contact", "Contact person", "text", 150),
+      col("company", "Customer / company", "text", 230, { suggest: true }), col("source", "Source", "text", 160, { suggest: true }),
+      col("stage", "Stage", "select", 150, { options: STAGES }), col("value", "Est. value", "number", 130),
+      col("owner", "Sales rep", "text", 120, { suggest: true }),
+    ] },
+    { id: "sales", label: "Sales", prefix: "INV-", cols: [
+      col("id", "Invoice no.", "text", 110), col("date", "Date", "date", 140), col("customer", "Customer", "text", 200, { suggest: true }),
+      col("category", "Product", "text", 190, { suggest: true }), col("amount", "Amount", "number", 140),
+      col("status", "Status", "select", 140, { options: ["Paid", "Partially paid", "Unpaid"] }),
+    ] },
+    { id: "expenses", label: "Expenses", prefix: "EXP-", cols: [
+      col("id", "ID", "text", 100), col("date", "Date", "date", 140), col("category", "Category", "text", 190, { suggest: true }),
+      col("description", "Description", "text", 250), col("vendor", "Vendor / payee", "text", 190, { suggest: true }),
+      col("amount", "Amount", "number", 130),
+    ] },
+    { id: "advances", label: "Advances", prefix: "ADV-", cols: [
+      col("id", "ID", "text", 90), col("date", "Date", "date", 140),
+      col("type", "Type", "select", 160, { options: ["Received", "Paid"], labels: { Received: "Received (deposit)", Paid: "Paid (to supplier)" } }),
+      col("party", "Customer / supplier", "text", 190, { suggest: true }), col("reference", "Order / PO reference", "text", 250),
+      col("contractValue", "Contract value", "number", 130), col("amount", "Advance", "number", 120),
+      col("recovered", "Recovered", "number", 120), col("method", "Method", "text", 130, { suggest: true }),
+    ] },
+    { id: "settlements", label: "Final settlement", prefix: "FS-", aliases: ["settlement", "settlements", "finalsettlements"], cols: [
+      col("id", "ID", "text", 84), col("project", "Project", "text", 230), col("client", "Customer", "text", 170, { suggest: true }),
+      col("startDate", "Order date", "date", 140), col("completionDate", "Installed", "date", 140), col("settlementDate", "Settlement date", "date", 140),
+      col("contractValue", "Contract value", "number", 130), col("variations", "Extra work", "number", 110),
+      col("advance", "Deposit", "number", 120), col("interimPaid", "Interim paid", "number", 120),
+      col("penalties", "Penalties / discounts", "number", 150), col("amountPaid", "Paid on settlement", "number", 150),
+      col("status", "Status", "select", 160, { options: ["Settled", "Awaiting payment", "Under review"] }),
+    ] },
+    { id: "payments", label: "Payments", prefix: "PAY-", cols: [
+      col("id", "ID", "text", 100), col("date", "Date", "date", 140), col("direction", "In / Out", "select", 90, { options: ["In", "Out"] }),
+      col("party", "Party", "text", 190, { suggest: true }), col("type", "Type", "text", 160, { suggest: true }),
+      col("reference", "Reference", "text", 130), col("method", "Method", "text", 130, { suggest: true }),
+      col("amount", "Amount", "number", 130), col("status", "Status", "select", 120, { options: ["Completed", "Pending", "Overdue"] }),
+    ] },
+  ];
+  const SETTINGS = [
+    { key: "name", label: "Company name" },
+    { key: "tagline", label: "Report subtitle" },
+    { key: "currency", label: "Currency code", hint: "ISO code, e.g. ETB, USD, EUR" },
+    { key: "preparedBy", label: "Prepared by" },
+    { key: "periodStart", label: "Period start", type: "date" },
+    { key: "periodEnd", label: "Period end", type: "date" },
+    { key: "cogsCategories", label: "Materials categories (cost of goods)", hint: "Expense categories counted as materials in the profit & loss, separated by commas", wide: true },
+  ];
+
+  const sheetUI = { active: "leads", q: "" };
+  const normKey = (x) => String(x ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  function parseNumber(v) {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    const t = String(v ?? "").replace(/[^0-9.\-]/g, "");
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function parseDateValue(v, X) {
+    if (v == null || v === "") return "";
+    if (typeof v === "number" && X) {
+      const d = X.SSF.parse_date_code(v);
+      if (d) return `${d.y}-${pad2(d.m)}-${pad2(d.d)}`;
+    }
+    if (v instanceof Date && !isNaN(v)) return toISO(v);
+    const t = String(v).trim();
+    let m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+    m = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (m) {
+      let a = +m[1], b = +m[2];
+      const [day, mon] = b > 12 ? [b, a] : [a, b]; // day-first unless impossible
+      return `${m[3]}-${pad2(mon)}-${pad2(day)}`;
+    }
+    const d = new Date(t);
+    return isNaN(d) ? t : toISO(d);
+  }
+  function coerce(c, v, X) {
+    if (c.type === "number") return parseNumber(v);
+    if (c.type === "date") return parseDateValue(v, X);
+    let t = String(v ?? "").trim();
+    if (c.type === "select") {
+      const hit = c.options.find((o) => normKey(o) === normKey(t) || normKey((c.labels || {})[o]) === normKey(t));
+      if (hit) t = hit;
+    }
+    return t;
+  }
+  function nextId(def) {
+    let max = 0;
+    for (const r of D[def.id]) {
+      const m = String(r.id || "").match(/(\d+)\s*$/);
+      if (m) max = Math.max(max, +m[1]);
+    }
+    const width = Math.max(3, ...D[def.id].map((r) => (String(r.id || "").match(/(\d+)\s*$/) || ["", ""])[1].length));
+    return `${def.prefix}${String(max + 1).padStart(width, "0")}`;
+  }
+  function blankRow(def) {
+    const r = {};
+    for (const c of def.cols) r[c.key] = c.type === "number" ? 0 : c.type === "date" ? toISO(new Date()) : c.type === "select" ? c.options[0] : "";
+    r.id = nextId(def);
+    return r;
+  }
+
+  function renderSheetTabs() {
+    const tabs = $("#sheet-tabs");
+    const all = [...SHEETS.map((d) => ({ id: d.id, label: d.label, count: D[d.id].length })), { id: "settings", label: "Settings" }];
+    tabs.replaceChildren(...all.map((t) => {
+      const b = h("button", { type: "button", role: "tab", "aria-selected": String(t.id === sheetUI.active), "aria-pressed": String(t.id === sheetUI.active) },
+        t.label, t.count != null ? h("span", { class: "cnt" }, num(t.count)) : null);
+      b.addEventListener("click", () => { sheetUI.active = t.id; sheetUI.q = ""; renderSheetTabs(); renderSheet(); });
+      return b;
+    }));
+  }
+
+  function renderSheetNotice() {
+    $("#sheet-notice").replaceChildren(icon("info"),
+      h("div", { class: "grow" },
+        h("strong", {}, "Changes save automatically in this browser. "),
+        "Only you see them. To publish for everyone: click ", h("strong", {}, "Download data.js"),
+        ", then upload that file to your GitHub repository (Add file → Upload files). Keep a copy with ", h("strong", {}, "Export Excel"), "."));
+  }
+
+  function renderSheet() {
+    renderSheetNotice();
+    const host = $("#sheet-body");
+    if (sheetUI.active === "settings") { renderSettings(host); return; }
+    const def = SHEETS.find((d) => d.id === sheetUI.active);
+    const rows = D[def.id];
+
+    const search = h("input", { class: "input", type: "search", placeholder: `Search ${def.label.toLowerCase()}`, "aria-label": `Search ${def.label}`, value: sheetUI.q });
+    const count = h("span", { class: "count" });
+    const add = h("button", { class: "btn btn-sm btn-primary", type: "button" }, icon("plus"), "Add row");
+    const gridWrap = h("div", { class: "sheet-scroll" });
+    const datalists = h("div", { hidden: true });
+
+    // suggestions for text columns
+    for (const c of def.cols.filter((x) => x.suggest)) {
+      datalists.append(h("datalist", { id: `dl-${def.id}-${c.key}` }, uniq(rows, c.key).map((v) => h("option", { value: v }))));
+    }
+
+    const drawGrid = () => {
+      const q = sheetUI.q.toLowerCase();
+      const visible = rows.map((r, i) => [r, i]).filter(([r]) => !q || def.cols.some((c) => String(r[c.key] ?? "").toLowerCase().includes(q)));
+      count.textContent = q ? `${num(visible.length)} of ${num(rows.length)} rows` : `${num(rows.length)} rows`;
+      if (!rows.length) {
+        gridWrap.replaceChildren(h("div", { class: "sheet-empty" }, h("strong", {}, `No ${def.label.toLowerCase()} yet. `), "Click Add row, or import an Excel/CSV file."));
+        return;
+      }
+      const thead = h("thead", {}, h("tr", {},
+        h("th", { class: "rn", scope: "col" }, "#"),
+        def.cols.map((c) => h("th", { class: c.type === "number" ? "num" : null, scope: "col", style: `min-width:${c.w}px` }, c.label)),
+        h("th", { scope: "col" }, h("span", { class: "sr-only" }, "Delete"))));
+      const tbody = h("tbody", {}, visible.map(([r, i]) => sheetRow(def, r, i)));
+      gridWrap.replaceChildren(h("table", { class: "sheet-grid" }, thead, tbody));
+    };
+
+    search.addEventListener("input", () => { sheetUI.q = search.value.trim(); drawGrid(); });
+    add.addEventListener("click", () => {
+      const r = blankRow(def);
+      rows.push(r);
+      saveData();
+      sheetUI.q = ""; search.value = "";
+      drawGrid(); renderSheetTabs();
+      gridWrap.scrollTop = gridWrap.scrollHeight;
+      const last = $$("tbody tr", gridWrap).pop();
+      const first = last && $$(".cell", last)[1];
+      if (first) first.focus();
+    });
+
+    host.replaceChildren(
+      h("div", { class: "sheet-head" }, h("h3", {}, def.label), count, h("span", { class: "dt-spacer" }),
+        h("div", { class: "dt-search" }, icon("search"), search), add),
+      gridWrap,
+      h("div", { class: "sheet-foot" }, "Tip: press Enter to move down a column. Numbers without commas; dates as day / month / year."),
+      datalists);
+    drawGrid();
+  }
+
+  function sheetRow(def, r, index) {
+    const tr = h("tr", {});
+    tr.append(h("td", { class: "rn" }, String(index + 1)));
+    def.cols.forEach((c, ci) => {
+      let input;
+      const label = `${c.label}, row ${index + 1}`;
+      if (c.type === "select") {
+        const opts = [...c.options];
+        if (r[c.key] && !opts.includes(r[c.key])) opts.push(r[c.key]);
+        input = h("select", { class: "cell", "aria-label": label }, opts.map((o) => h("option", { value: o }, (c.labels || {})[o] || o)));
+        input.value = r[c.key] ?? c.options[0];
+      } else if (c.type === "date") {
+        input = h("input", { class: "cell", type: "date", "aria-label": label, value: r[c.key] || "" });
+      } else if (c.type === "number") {
+        input = h("input", { class: "cell num", type: "text", inputmode: "decimal", "aria-label": label, value: r[c.key] === "" || r[c.key] == null ? "" : String(r[c.key]) });
+      } else {
+        input = h("input", { class: "cell", type: "text", "aria-label": label, value: r[c.key] ?? "", list: c.suggest ? `dl-${def.id}-${c.key}` : null });
+      }
+      input.dataset.col = String(ci);
+      input.addEventListener("change", () => {
+        const v = coerce(c, input.value);
+        r[c.key] = v;
+        if (c.type === "number") input.value = String(v);
+        input.classList.toggle("bad", c.type === "date" && v !== "" && !isoRe.test(v));
+        saveData();
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.isComposing) return;
+        e.preventDefault();
+        input.dispatchEvent(new Event("change"));
+        const next = (e.shiftKey ? tr.previousElementSibling : tr.nextElementSibling);
+        const target = next && $(`.cell[data-col="${ci}"]`, next);
+        if (target) target.focus();
+      });
+      tr.append(h("td", {}, input));
+    });
+    const del = h("button", { class: "del-btn", type: "button", "aria-label": `Delete row ${index + 1}`, title: "Delete row" }, icon("trash"));
+    del.addEventListener("click", () => {
+      const arr = D[def.id];
+      const at = arr.indexOf(r);
+      if (at < 0) return;
+      arr.splice(at, 1);
+      saveData();
+      renderSheet(); renderSheetTabs();
+      toast(`Row deleted from ${def.label}.`, { label: "Undo", run: () => { arr.splice(at, 0, r); saveData(); renderSheet(); renderSheetTabs(); } });
+    });
+    tr.append(h("td", {}, del));
+    return tr;
+  }
+
+  function settingValue(sd) {
+    const v = D.company[sd.key];
+    return Array.isArray(v) ? v.join(", ") : v ?? "";
+  }
+  function setSetting(sd, raw) {
+    if (sd.key === "cogsCategories") D.company.cogsCategories = String(raw).split(",").map((x) => x.trim()).filter(Boolean);
+    else if (sd.key === "currency") D.company.currency = String(raw).trim().toUpperCase();
+    else if (sd.type === "date") D.company[sd.key] = parseDateValue(raw);
+    else D.company[sd.key] = String(raw).trim();
+  }
+  function renderSettings(host) {
+    const form = h("div", { class: "settings-form" });
+    for (const sd of SETTINGS) {
+      const id = `set-${sd.key}`;
+      const input = h("input", { class: "input", id, type: sd.type === "date" ? "date" : "text", value: settingValue(sd) });
+      if (sd.key === "cogsCategories") input.setAttribute("list", "dl-cogs");
+      input.addEventListener("change", () => { setSetting(sd, input.value); saveData(); });
+      form.append(h("label", { class: `field${sd.wide ? " wide" : ""}`, for: id }, h("span", {}, sd.label), input, sd.hint ? h("small", {}, sd.hint) : null));
+    }
+    const cats = uniq(D.expenses, "category");
+    form.append(h("p", { class: "field wide" }, h("small", {}, `Expense categories in your sheet: ${cats.join(", ") || "none yet"}`)));
+    host.replaceChildren(h("div", { class: "sheet-head" }, h("h3", {}, "Settings")), form);
+  }
+
+  /* ---------- Excel / CSV import & export ---------- */
+  let xlsxPromise = null;
+  function loadXLSX() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxPromise) {
+      xlsxPromise = new Promise((resolve, reject) => {
+        const el = document.createElement("script");
+        el.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+        el.onload = () => resolve(window.XLSX);
+        el.onerror = () => { xlsxPromise = null; reject(new Error("Could not load the Excel tool. Check the internet connection and try again.")); };
+        document.head.append(el);
+      });
+    }
+    return xlsxPromise;
+  }
+  const slug = (t) => String(t || "report").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  async function exportExcel() {
+    try {
+      const X = await loadXLSX();
+      const wb = X.utils.book_new();
+      for (const def of SHEETS) {
+        const aoa = [def.cols.map((c) => c.label), ...D[def.id].map((r) => def.cols.map((c) => r[c.key] ?? ""))];
+        const ws = X.utils.aoa_to_sheet(aoa);
+        ws["!cols"] = def.cols.map((c) => ({ wch: Math.max(10, Math.round(c.w / 7)) }));
+        X.utils.book_append_sheet(wb, ws, def.label.slice(0, 31));
+      }
+      const set = X.utils.aoa_to_sheet([["Setting", "Value"], ...SETTINGS.map((sd) => [sd.label, settingValue(sd)])]);
+      set["!cols"] = [{ wch: 36 }, { wch: 60 }];
+      X.utils.book_append_sheet(wb, set, "Settings");
+      X.writeFile(wb, `${slug(D.company.name)}-report-data.xlsx`);
+    } catch (e) { toast(e.message); }
+  }
+
+  function colFor(def, header) {
+    const k = normKey(header);
+    return def.cols.find((c) => normKey(c.key) === k || normKey(c.label) === k);
+  }
+  function parseRows(X, ws, def) {
+    const json = X.utils.sheet_to_json(ws, { defval: "", raw: true });
+    const out = [];
+    for (const obj of json) {
+      const r = {};
+      for (const [head, v] of Object.entries(obj)) {
+        const c = colFor(def, head);
+        if (c) r[c.key] = coerce(c, v, X);
+      }
+      if (!Object.values(r).some((v) => v !== "" && v !== 0)) continue;
+      for (const c of def.cols) if (!(c.key in r)) r[c.key] = c.type === "number" ? 0 : c.type === "select" ? c.options[0] : "";
+      out.push(r);
+    }
+    return out;
+  }
+  function parseSettings(X, ws) {
+    const rows = X.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    const found = {};
+    for (const [label, value] of rows) {
+      const sd = SETTINGS.find((x) => normKey(x.label) === normKey(label) || normKey(x.key) === normKey(label));
+      if (sd) found[sd.key] = sd.type === "date" ? parseDateValue(value, X) : value;
+    }
+    return found;
+  }
+
+  async function importFile(file) {
+    try {
+      const X = await loadXLSX();
+      // raw for CSV: keep text as typed so dates are read day-first (not US month-first)
+      const wb = X.read(new Uint8Array(await file.arrayBuffer()), { type: "array", raw: /\.csv$/i.test(file.name) });
+      const plan = [];
+      let settings = null;
+      for (const name of wb.SheetNames) {
+        const n = normKey(name);
+        if (n === "settings") { settings = parseSettings(X, wb.Sheets[name]); continue; }
+        const def = SHEETS.find((d) => normKey(d.id) === n || normKey(d.label) === n || (d.aliases || []).includes(n));
+        if (def) plan.push({ def, rows: parseRows(X, wb.Sheets[name], def) });
+      }
+      if (!plan.length && !settings) {
+        const def = SHEETS.find((d) => d.id === sheetUI.active);
+        if (!def) { toast("Open the sheet you want to import into (for example Sales), then import again."); return; }
+        plan.push({ def, rows: parseRows(X, wb.Sheets[wb.SheetNames[0]], def) });
+      }
+      const lines = plan.map((p) => `• ${p.def.label}: ${p.rows.length} rows`);
+      if (settings) lines.push("• Settings");
+      if (!confirm(`Import from "${file.name}"?\n\n${lines.join("\n")}\n\nThis replaces the current rows in these sheets.`)) return;
+      for (const p of plan) {
+        D[p.def.id] = p.rows;
+        for (const r of p.rows) if (!r.id) r.id = nextId(p.def);
+      }
+      if (settings) for (const [k, v] of Object.entries(settings)) setSetting(SETTINGS.find((x) => x.key === k), v);
+      D.sample = false;
+      saveData();
+      if (plan.length === 1) sheetUI.active = plan[0].def.id;
+      renderSheetTabs(); renderSheet();
+      toast(`Imported ${plan.reduce((a, p) => a + p.rows.length, 0)} rows.`);
+    } catch (e) {
+      toast(e.message || "Could not read that file.");
+    }
+  }
+
+  function dataJsText() {
+    const rows = (arr) => arr.map((r) => "    " + JSON.stringify(r)).join(",\n");
+    const company = JSON.stringify(D.company, null, 2).replace(/\n/g, "\n  ");
+    return `/*
+ * COMMERCIAL REPORT — DATA FILE
+ * Exported from the Data sheet on ${toISO(new Date())}.
+ * Upload this file to the GitHub repository (replacing data.js) to publish it.
+ */
+window.REPORT_DATA = {
+  sample: ${D.sample ? "true" : "false"},
+  company: ${company},
+${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],`).join("\n")}
+};
+`;
+  }
+
+  /* ---------- view switching ---------- */
+  function setView(v, { scroll = true } = {}) {
+    document.body.dataset.view = v;
+    $$("#view-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === v)));
+    $$("#nav a").forEach((a) => a.classList.toggle("active", v === "sheet" ? a.classList.contains("nav-sheet") : a.getAttribute("href") === "#overview"));
+    hideTip();
+    if (v === "sheet") {
+      renderSheetTabs();
+      renderSheet();
+    } else if (dirty) {
+      rebuildAll();
+    }
+    try { history.replaceState(null, "", v === "sheet" ? "#sheet" : location.pathname + location.search); } catch (e) { /* ignore */ }
+    if (scroll) scrollTo({ top: 0 });
+  }
+
+  /* ---------- one-time wiring ---------- */
+  function initOnce() {
     $$("#nav a").forEach((a, i) => {
       a.prepend(icon(a.dataset.icon));
-      a.append(h("span", { class: "n" }, String(i + 1).padStart(2, "0")));
+      if (!a.classList.contains("nav-sheet")) a.append(h("span", { class: "n" }, String(i + 1).padStart(2, "0")));
+      a.addEventListener("click", (e) => {
+        const id = a.getAttribute("href").slice(1);
+        e.preventDefault();
+        if (id === "sheet") { setView("sheet"); return; }
+        if (document.body.dataset.view === "sheet") setView("report", { scroll: false });
+        document.getElementById(id).scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      });
     });
     const links = new Map($$("#nav a").map((a) => [a.getAttribute("href").slice(1), a]));
     const io = new IntersectionObserver((entries) => {
+      if (document.body.dataset.view === "sheet") return;
       for (const e of entries) {
         if (!e.isIntersecting) continue;
         links.forEach((a) => a.classList.remove("active"));
@@ -1081,9 +1597,7 @@
       }
     }, { rootMargin: "-35% 0px -60% 0px" });
     $$(".section").forEach((sec) => io.observe(sec));
-    links.get("overview").classList.add("active");
 
-    // Chart / table toggles
     $$(".chart-card").forEach((card) => {
       $$(".view-toggle button", card).forEach((b) => b.addEventListener("click", () => {
         card.dataset.view = b.dataset.view;
@@ -1092,7 +1606,7 @@
       }));
     });
 
-    // Redraw SVG charts when their width changes
+    // Redraw SVG charts when their width changes (also when they become visible)
     const widths = new WeakMap();
     let pending = new Set(), raf = 0;
     const ro = new ResizeObserver((entries) => {
@@ -1100,7 +1614,7 @@
         const w = Math.round(e.contentRect.width);
         if (widths.get(e.target) === w) continue;
         widths.set(e.target, w);
-        pending.add(e.target);
+        if (w > 0) pending.add(e.target);
       }
       if (!pending.size || raf) return;
       raf = requestAnimationFrame(() => {
@@ -1114,10 +1628,8 @@
       });
     });
     $$(".chart-body").forEach((el) => ro.observe(el));
-    const heroObs = new MutationObserver(() => { if (V.spark) ro.observe(V.spark); });
-    heroObs.observe($("#hero"), { childList: true });
+    new MutationObserver(() => { if (V.spark) ro.observe(V.spark); }).observe($("#hero"), { childList: true });
 
-    // Theme
     $("#theme-btn").addEventListener("click", () => {
       const root = document.documentElement;
       const current = root.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -1126,12 +1638,40 @@
       try { localStorage.setItem("cr-theme", next); } catch (e) { /* storage unavailable */ }
     });
 
-    // Print
-    $("#print-btn").addEventListener("click", () => window.print());
+    $("#print-btn").addEventListener("click", () => {
+      if (document.body.dataset.view === "sheet") setView("report");
+      requestAnimationFrame(() => window.print());
+    });
     addEventListener("beforeprint", () => { Object.values(TABLES).forEach((t) => { t.printAll = true; t.draw(); }); });
     addEventListener("afterprint", () => {
       document.body.classList.remove("print-statement");
       Object.values(TABLES).forEach((t) => { t.printAll = false; t.draw(); });
+    });
+
+    // View switch
+    $$("#view-seg button").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+
+    // Sheet actions
+    const importBtn = $("#import-btn"), fileIn = $("#import-file");
+    importBtn.replaceChildren(icon("upload"), "Import Excel / CSV");
+    importBtn.addEventListener("click", () => fileIn.click());
+    fileIn.addEventListener("change", () => { const f = fileIn.files[0]; fileIn.value = ""; if (f) importFile(f); });
+    $("#export-xlsx").replaceChildren(icon("download"), "Export Excel");
+    $("#export-xlsx").addEventListener("click", exportExcel);
+    $("#export-js").replaceChildren(icon("code"), "Download data.js");
+    $("#export-js").addEventListener("click", () => {
+      download("data.js", dataJsText(), "text/javascript;charset=utf-8");
+      toast("data.js downloaded. Upload it to your GitHub repository to publish.");
+    });
+    $("#restore-sample").addEventListener("click", () => {
+      if (!confirm("Replace everything in the sheet with the published data? Your edits in this browser will be lost.")) return;
+      discardLocal(); renderSheetTabs(); renderSheet(); toast("Published data restored.");
+    });
+    $("#clear-all").addEventListener("click", () => {
+      if (!confirm("Start with an empty sheet? All rows will be removed (settings are kept). Tip: Export Excel first to keep a copy.")) return;
+      for (const k of DATASETS) D[k] = [];
+      D.sample = false;
+      saveData(); renderSheetTabs(); renderSheet(); toast("Sheet cleared. Add rows or import your Excel file.");
     });
   }
 
@@ -1144,7 +1684,9 @@
     } catch (e) { /* ignore */ }
   }
 
-  initChrome();
+  buildModel();
   initStateFromURL();
-  render();
+  initOnce();
+  rebuildAll();
+  setView(location.hash === "#sheet" ? "sheet" : "report", { scroll: false });
 })();

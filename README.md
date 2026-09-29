@@ -1,23 +1,19 @@
 # Commercial Report
 
-A single-page commercial report covering **leads, sales, expenses, advances, final settlements and payments**. It has a period filter, charts with table views, searchable and sortable registers with CSV export, printable settlement statements, and light and dark themes.
+A single-page commercial report for a kitchen & cabinet business, covering **leads, sales, expenses, advances, final settlements and payments**. It has a period filter, charts with table views, searchable and sortable registers with CSV export, printable settlement statements, and light and dark themes.
 
 **Live:** https://ewkena2-ops.github.io/commercial-report/
 
-## Use your own data
+## Use your own data: the Data sheet
 
-Everything on the page is calculated from **`data.js`**. Replace the sample records with your own:
+Click **Data sheet** (top right, or in the sidebar) to edit the records behind the report, like a spreadsheet:
 
-| Array | One row per | Key fields |
-|---|---|---|
-| `leads` | lead | `date`, `company`, `source`, `stage` (New / Contacted / Qualified / Proposal / Won / Lost), `value`, `owner` |
-| `sales` | invoice | `date`, `customer`, `category`, `amount`, `status` (Paid / Partially paid / Unpaid) |
-| `expenses` | expense | `date`, `category`, `description`, `vendor`, `amount` |
-| `advances` | advance | `date`, `type` (Received / Paid), `party`, `reference`, `contractValue`, `amount`, `recovered` |
-| `settlements` | project | `contractValue`, `variations`, `advance`, `interimPaid`, `penalties`, `amountPaid`, `status` |
-| `payments` | payment | `date`, `direction` (In / Out), `party`, `type`, `amount`, `status` (Completed / Pending / Overdue) |
+- **Type directly** into the sheets: Leads, Sales, Expenses, Advances, Final settlement and Payments. **Add row** adds a line and the bin icon deletes one (with Undo).
+- **Import Excel / CSV**: a workbook whose tab names match the sheets (Leads, Sales, ...) fills them all at once. A single CSV goes into the sheet you have open. Column headers must match the sheet's column names. Dates are read day-first (05/03/2026 = 5 March).
+- **Export Excel** saves everything as one workbook, which is also the easiest template to fill in.
+- **Settings** holds the company name, currency (ETB), period and which expense categories count as materials.
 
-Set the company name, currency (any ISO code, e.g. `ETB`, `USD`, `EUR`) and reporting period in the `company` block at the top of the file. Push the change and GitHub Pages will update the live site in about a minute.
+Edits are saved **in your browser only**. To publish them for everyone, click **Download data.js**, then in this repository choose **Add file → Upload files** and upload it (it replaces the old `data.js`). The live site updates about a minute later.
 
 The sample data in this repository is fictional.
 
@@ -26,4 +22,4 @@ The sample data in this repository is fictional.
 - `index.html`: page structure
 - `styles.css`: design tokens (light and dark), layout and print styles
 - `app.js`: calculations, charts, tables and the period filter (no dependencies)
-- `data.js`: your data
+- `data.js`: the published data (created with Download data.js in the Data sheet)

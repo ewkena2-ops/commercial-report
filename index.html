@@ -37,6 +37,7 @@
         <a href="#advances" data-icon="advances">Advances</a>
         <a href="#settlement" data-icon="settlement">Final settlement</a>
         <a href="#payments" data-icon="payments">Payments</a>
+        <a href="#sheet" data-icon="sheet" class="nav-sheet">Data sheet</a>
       </nav>
 
       <div class="sidebar-foot">
@@ -56,6 +57,10 @@
             <p class="lede" id="lede">Leads, sales, expenses, advances, final settlements and payments in one place.</p>
           </div>
           <div class="topbar-actions">
+            <div class="seg view-seg" id="view-seg" role="group" aria-label="View">
+              <button type="button" data-view="report" aria-pressed="true">Report</button>
+              <button type="button" data-view="sheet" aria-pressed="false">Data sheet</button>
+            </div>
             <button class="btn" id="print-btn" type="button">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v7H6z"/></svg>
               <span>Print / PDF</span>
@@ -67,7 +72,9 @@
           </div>
         </header>
 
-        <div class="filterbar" role="toolbar" aria-label="Report period">
+        <div class="notice report-only" id="data-banner" hidden></div>
+
+        <div class="filterbar report-only" role="toolbar" aria-label="Report period">
           <span class="filter-label">Period</span>
           <div class="seg" id="period-seg"></div>
           <label class="sr-only" for="month-select">Single month</label>
@@ -76,7 +83,7 @@
         </div>
 
         <!-- 01 OVERVIEW -->
-        <section class="section" id="overview" aria-labelledby="h-overview">
+        <section class="section report-only" id="overview" aria-labelledby="h-overview">
           <div class="section-head">
             <span class="section-num">01</span>
             <div>
@@ -115,12 +122,12 @@
         </section>
 
         <!-- 02 LEADS -->
-        <section class="section" id="leads" aria-labelledby="h-leads">
+        <section class="section report-only" id="leads" aria-labelledby="h-leads">
           <div class="section-head">
             <span class="section-num">02</span>
             <div>
               <h2 id="h-leads">Leads</h2>
-              <p>Where new business comes from and how it moves through the pipeline.</p>
+              <p>Customer inquiries and how they move from site measurement to a signed order.</p>
             </div>
           </div>
 
@@ -195,12 +202,12 @@
         </section>
 
         <!-- 03 SALES -->
-        <section class="section" id="sales" aria-labelledby="h-sales">
+        <section class="section report-only" id="sales" aria-labelledby="h-sales">
           <div class="section-head">
             <span class="section-num">03</span>
             <div>
               <h2 id="h-sales">Sales</h2>
-              <p>Invoiced revenue, what sold, and who bought it.</p>
+              <p>Orders invoiced: which products sell and who buys them.</p>
             </div>
           </div>
 
@@ -210,8 +217,8 @@
             <article class="card chart-card" data-chart="categories">
               <header class="card-head">
                 <div>
-                  <h3>Revenue by category</h3>
-                  <p class="card-sub">Invoiced amount per product line</p>
+                  <h3>Revenue by product</h3>
+                  <p class="card-sub">Kitchens, wardrobes, vanities and more</p>
                 </div>
                 <div class="seg seg-sm view-toggle" role="group" aria-label="View as">
                   <button type="button" data-view="chart" aria-pressed="true">Chart</button>
@@ -245,12 +252,12 @@
         </section>
 
         <!-- 04 EXPENSES -->
-        <section class="section" id="expenses" aria-labelledby="h-expenses">
+        <section class="section report-only" id="expenses" aria-labelledby="h-expenses">
           <div class="section-head">
             <span class="section-num">04</span>
             <div>
               <h2 id="h-expenses">Expenses</h2>
-              <p>Where the money goes, by category and by month.</p>
+              <p>Materials, workshop and overhead costs, by category and by month.</p>
             </div>
           </div>
 
@@ -295,30 +302,30 @@
         </section>
 
         <!-- 05 ADVANCES -->
-        <section class="section" id="advances" aria-labelledby="h-advances">
+        <section class="section report-only" id="advances" aria-labelledby="h-advances">
           <div class="section-head">
             <span class="section-num">05</span>
             <div>
               <h2 id="h-advances">Advances</h2>
-              <p>Advance payments received from clients and paid to suppliers, and how much has been recovered.</p>
+              <p>Order deposits received from customers and advances paid to suppliers, and how much has been offset.</p>
             </div>
           </div>
 
           <div class="card stat-strip" id="advance-stats"></div>
 
           <article class="card table-card">
-            <header class="card-head"><div><h3>Advance register</h3><p class="card-sub">Recovered = amount already offset against invoices or bills</p></div></header>
+            <header class="card-head"><div><h3>Advance register</h3><p class="card-sub">Recovered = amount already offset against invoices, deliveries or supplier bills</p></div></header>
             <div id="advance-table"></div>
           </article>
         </section>
 
         <!-- 06 FINAL SETTLEMENT -->
-        <section class="section" id="settlement" aria-labelledby="h-settlement">
+        <section class="section report-only" id="settlement" aria-labelledby="h-settlement">
           <div class="section-head">
             <span class="section-num">06</span>
             <div>
               <h2 id="h-settlement">Final settlement</h2>
-              <p>Closing statement for each completed project: contract value, what was already paid, and the balance.</p>
+              <p>Closing statement for each installed project: contract value, deposit and payments received, and the final balance.</p>
             </div>
           </div>
 
@@ -331,7 +338,7 @@
         </section>
 
         <!-- 07 PAYMENTS -->
-        <section class="section" id="payments" aria-labelledby="h-payments">
+        <section class="section report-only" id="payments" aria-labelledby="h-payments">
           <div class="section-head">
             <span class="section-num">07</span>
             <div>
@@ -367,15 +374,45 @@
           </article>
         </section>
 
+        <!-- DATA SHEET -->
+        <section class="sheet-view" id="sheet" aria-labelledby="h-sheet">
+          <div class="section-head">
+            <span class="section-num">08</span>
+            <div>
+              <h2 id="h-sheet">Data sheet</h2>
+              <p>Type, paste or import your records here, like a spreadsheet. The report is calculated from this sheet.</p>
+            </div>
+          </div>
+
+          <div class="notice" id="sheet-notice"></div>
+
+          <div class="sheet-bar">
+            <div class="seg sheet-tabs" id="sheet-tabs" role="tablist" aria-label="Sheets"></div>
+          </div>
+
+          <div class="sheet-actions">
+            <button class="btn btn-sm" id="import-btn" type="button"></button>
+            <input type="file" id="import-file" accept=".xlsx,.xls,.csv" hidden>
+            <button class="btn btn-sm" id="export-xlsx" type="button"></button>
+            <button class="btn btn-sm" id="export-js" type="button"></button>
+            <span class="dt-spacer"></span>
+            <button class="btn btn-sm btn-ghost" id="restore-sample" type="button">Restore sample</button>
+            <button class="btn btn-sm btn-ghost danger" id="clear-all" type="button">Start empty</button>
+          </div>
+
+          <article class="card sheet-card" id="sheet-body"></article>
+        </section>
+
         <footer class="page-foot">
           <p><strong id="foot-company">Company</strong> · Commercial report · <span id="foot-period"></span></p>
-          <p class="muted">Figures shown are sample data. Edit <code>data.js</code> to load your own records; every number on this page recalculates from it.</p>
+          <p class="muted" id="foot-note"></p>
         </footer>
       </div>
     </main>
   </div>
 
   <div id="tooltip" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="data.js"></script>
   <script src="app.js"></script>
