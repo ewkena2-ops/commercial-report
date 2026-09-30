@@ -1,26 +1,10 @@
 -- Klever department reports — Cloudflare D1 schema
--- One account per person (users); access is per department (members).
-CREATE TABLE IF NOT EXISTS users (
-  email      TEXT PRIMARY KEY,
-  name       TEXT,
-  pass       TEXT NOT NULL,
+-- No login: each department's link carries a secret code; only its SHA-256 hash is stored.
+CREATE TABLE IF NOT EXISTS link_keys (
+  dept       TEXT NOT NULL,
+  key_hash   TEXT PRIMARY KEY,
   created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS sessions (
-  token_hash TEXT PRIMARY KEY,
-  email      TEXT NOT NULL,
-  expires    INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS sessions_email ON sessions(email);
-CREATE TABLE IF NOT EXISTS members (
-  dept       TEXT NOT NULL,
-  email      TEXT NOT NULL,
-  name       TEXT,
-  role       TEXT NOT NULL CHECK (role IN ('owner', 'editor', 'viewer')),
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (dept, email)
-);
-CREATE INDEX IF NOT EXISTS members_email ON members(email);
 CREATE TABLE IF NOT EXISTS records (
   dept       TEXT NOT NULL,
   dataset    TEXT NOT NULL,
@@ -45,8 +29,8 @@ CREATE TABLE IF NOT EXISTS meta (
   v INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO meta (k, v) VALUES ('rev', 0);
-CREATE TABLE IF NOT EXISTS attempts (
-  email TEXT PRIMARY KEY,
-  fails INTEGER NOT NULL,
-  since INTEGER NOT NULL
-);
+-- Tables of the earlier login version, no longer used
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS members;
+DROP TABLE IF EXISTS attempts;

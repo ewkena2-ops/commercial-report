@@ -23,19 +23,15 @@ A daily commercial report for a kitchen & cabinet business, built around nine qu
   - Setting a lead's stage to *Paid customer* fills in the paid date. Setting a problem to *Solved* fills in the solved date.
 - **Download PDF** makes a 3 to 4 page report for the selected date. Amharic text is supported through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).
 
-## Login and access
+## Sharing (no login)
 
-Records are shared online through a small Cloudflare server (Worker + D1 database, free plan). Everyone signs in with email and password. One account works on every department page the person has access to.
+Records are shared online through a small Cloudflare server (Worker + D1 database, free plan). There is no login. The report's full link ends with a secret code (`?k=...`): everyone who opens the full link sees and edits the same records, live. Without the code nothing can be seen or changed. The code is not stored in this repository; the server keeps only its hash.
 
-| Access | Can do |
-|---|---|
-| Owner | Everything, plus **Team & access**: add people, change access, reset forgotten passwords |
-| Enters data | Add and edit records and settings, see the report, make PDFs |
-| View only | See the report and records, make PDFs; cannot change anything |
+- Send the **full link** (with `?k=...`) to the people who should use the report.
+- A device that opened the full link once remembers the code, so a home-screen shortcut keeps working.
+- To lock everyone out, a new code is made on the server (`link_keys` table) and the new full link is sent again.
 
-**Adding people:** there is no self sign-up. The owner opens **Data sheet → Team & access**, types the person's name, a login (e.g. `sara@klever.local`, it does not need to be a real email) and a password, picks the access level and taps *Give access*. Then they send the person the link, login and password. A forgotten password is reset there with *Set password*. Someone who already has a login from another department is added without a password.
-
-Back up with **Export Excel**. To use the page on one device only (no login), leave `apiUrl` empty in `config.js`.
+Back up with **Export Excel**. To keep records on one device only, leave `apiUrl` empty in `config.js`.
 
 ## Files
 
