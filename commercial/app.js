@@ -312,15 +312,22 @@
       if ((disp === "Late" || disp === "Delayed") && barFrom && barFrom <= T && barTo < T) barTo = T; // still in the workshop
       return { ...p, disp, rank, from, to, barFrom, barTo };
     });
-    v.prodWeek = v.prod.filter((p) => isISO(p.from) && p.from <= we && p.to >= ws).sort((a, b) => a.from.localeCompare(b.from) || a.rank - b.rank);
+    const inWeek = (a, b) => v.prod.filter((p) => isISO(p.from) && p.from <= b && p.to >= a).sort((x, y) => x.from.localeCompare(y.from) || x.rank - y.rank);
+    v.prodWeek = inWeek(ws, we);
+    v.prodNext = inWeek(addDays(ws, 7), addDays(ws, 13));
     v.prodFinishWeek = v.prod.filter((p) => within(p.finish, ws, we));
     v.prodInstallWeek = v.prod.filter((p) => within(p.install, ws, we));
     v.prodLate = v.prod.filter((p) => p.disp === "Late" || p.disp === "Delayed");
     const area = (rows) => sum(rows, (p) => p.m2);
-    v.prodM2 = { week: area(v.prodWeek), finish: area(v.prodFinishWeek), install: area(v.prodInstallWeek), active: area(v.prodWeek.filter((p) => p.status === "In production" || p.disp === "Late" || p.disp === "Delayed")) };
+    v.prodM2 = { next: area(v.prodNext), week: area(v.prodWeek), finish: area(v.prodFinishWeek), install: area(v.prodInstallWeek), active: area(v.prodWeek.filter((p) => p.status === "In production" || p.disp === "Late" || p.disp === "Delayed")) };
 
     v.weekLabels = weeks.map((w) => ({ short: fDay.format(parseD(w)).replace(/^[^,]+,\s*/, ""), long: `Week of ${fdate(w)}` }));
     v.dayLabels = days.map((d) => ({ short: fDay.format(parseD(d)).split(",")[0], long: flong(d) }));
+    const nextDays = days.map((d) => addDays(d, 7));
+    v.prodWeeks = {
+      this: { title: "This week", ws, we, days, labels: v.dayLabels, rows: v.prodWeek },
+      next: { title: "Next week", ws: nextDays[0], we: nextDays[6], days: nextDays, labels: nextDays.map((d) => ({ short: fDay.format(parseD(d)).split(",")[0], long: flong(d) })), rows: v.prodNext },
+    };
     return v;
   }
 
@@ -543,16 +550,31 @@
   }
 
   const PROD_TONE = { Planned: "planned", "In production": "active", Ready: "done", Installed: "done", Delayed: "late", Late: "late" };
+  // which week the schedule shows: the viewer's choice, else this week (or next week when this week is empty)
+  let prodWkChoice = null;
+  const prodWkKey = () => prodWkChoice || (V.prodWeek.length || !V.prodNext.length ? "this" : "next");
+  const shortDate = (iso) => fDay.format(parseD(iso)).replace(/^[^,]+,\s*/, "");
   function drawSchedule(el) {
-    const v = V, rows = v.prodWeek;
-    if (!rows.length) { el.replaceChildren(emptyState("Nothing scheduled this week", "Add jobs in the Data sheet (Production schedule tab).")); return; }
-    const dayIdx = (iso) => (iso < v.ws ? 0 : iso > v.we ? 6 : v.days.indexOf(iso));
-    const cells = () => v.days.map((d, i) => h("div", { class: `gt-cell${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }));
+    const v = V, key = prodWkKey(), wk = v.prodWeeks[key], rows = wk.rows;
+    const seg = h("div", { class: "seg seg-sm gt-weeks", role: "group", "aria-label": "Week" }, ["this", "next"].map((k) => {
+      const w = v.prodWeeks[k];
+      const b = h("button", { type: "button", "aria-pressed": String(k === key) }, w.title, h("span", { class: "gt-range" }, ` ${shortDate(w.ws)} – ${shortDate(w.we)}`), h("span", { class: "cnt" }, num(w.rows.length)));
+      b.addEventListener("click", () => {
+        prodWkChoice = k;
+        drawChart("prodWeek");
+        const t = TABLES.production;
+        if (t && !t.userTab) { t.setTab(k === "next" ? "Next" : "Week"); t.draw(); }
+      });
+      return b;
+    }));
+    if (!rows.length) { el.replaceChildren(h("div", { class: "gt" }, seg, emptyState(`Nothing scheduled ${key === "next" ? "next" : "this"} week`, "Add jobs in the Data sheet (Production schedule tab)."))); return; }
+    const dayIdx = (iso) => (iso < wk.ws ? 0 : iso > wk.we ? 6 : wk.days.indexOf(iso));
+    const cells = () => wk.days.map((d, i) => h("div", { class: `gt-cell${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }));
     const legend = h("div", { class: "gt-legend" },
       [["planned", "Planned"], ["active", "In production"], ["done", "Ready / installed"], ["late", "Late / delayed"]].map(([k, t]) => h("span", {}, h("i", { class: `gt-sw ${k}` }), t)),
       h("span", {}, h("i", { class: "gt-sw pin" }), "Installation day"));
     const head = h("div", { class: "gt-row gt-head", "aria-hidden": "true" }, h("div", { class: "gt-label" }),
-      v.days.map((d, i) => h("div", { class: `gt-day${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }, v.dayLabels[i].short, h("span", {}, String(parseD(d).getDate())))));
+      wk.days.map((d, i) => h("div", { class: `gt-day${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }, wk.labels[i].short, h("span", {}, String(parseD(d).getDate())))));
     const list = h("div", { class: "gt-list", role: "list" });
     for (const p of rows) {
       const prodFrom = p.barFrom, prodTo = p.barTo;
@@ -567,18 +589,18 @@
         "aria-label": `${p.customer || "Job"}, ${p.product || ""}${Number(p.m2) ? `, ${m2(p.m2)}` : ""}: ${p.disp}. Production ${fdate(p.start)} to ${fdate(p.finish)}. Installation ${isISO(p.install) ? fdate(p.install) : "not booked"}.` },
         h("div", { class: "gt-label" }, h("strong", { title: p.project || p.customer }, p.customer || p.project || "—"), h("span", {}, [p.product, Number(p.m2) ? m2(p.m2) : "", p.disp].filter(Boolean).join(" · "))),
         ...cells());
-      if (isISO(prodFrom) && prodFrom <= v.we && prodTo >= v.ws) {
+      if (isISO(prodFrom) && prodFrom <= wk.we && prodTo >= wk.ws) {
         const a = dayIdx(prodFrom), b = dayIdx(prodTo);
-        row.append(h("div", { class: `gt-bar ${PROD_TONE[p.disp] || "planned"}${prodFrom < v.ws ? " cont-l" : ""}${prodTo > v.we ? " cont-r" : ""}`, style: `grid-column:${a + 2} / ${b + 3}` }));
+        row.append(h("div", { class: `gt-bar ${PROD_TONE[p.disp] || "planned"}${prodFrom < wk.ws ? " cont-l" : ""}${prodTo > wk.we ? " cont-r" : ""}`, style: `grid-column:${a + 2} / ${b + 3}` }));
       }
-      if (within(p.install, v.ws, v.we)) row.append(h("i", { class: "gt-pin", style: `grid-column:${v.days.indexOf(p.install) + 2}`, title: `Installation ${flong(p.install)}` }));
+      if (within(p.install, wk.ws, wk.we)) row.append(h("i", { class: "gt-pin", style: `grid-column:${wk.days.indexOf(p.install) + 2}`, title: `Installation ${flong(p.install)}` }));
       row.addEventListener("pointermove", (e) => showTip(e.clientX, e.clientY, p.customer || p.project || "Job", tip()));
       row.addEventListener("pointerleave", hideTip);
       row.addEventListener("focus", () => tipAt(row, p.customer || p.project || "Job", tip()));
       row.addEventListener("blur", hideTip);
       list.append(row);
     }
-    el.replaceChildren(h("div", { class: "gt" }, legend, head, list));
+    el.replaceChildren(h("div", { class: "gt" }, seg, legend, head, list));
   }
 
   function simpleTable({ head, rows, num: numCols = [], foot }) {
@@ -644,8 +666,9 @@
         const seg = h("div", { class: "seg seg-sm", role: "group", "aria-label": cfg.tabs.label });
         for (const o of cfg.tabs.options) {
           const b = h("button", { type: "button", "aria-pressed": String(o.value === this.tab) }, o.label);
+          (this.tabBtns = this.tabBtns || new Map()).set(o.value, b);
           b.addEventListener("click", () => {
-            this.tab = o.value; this.page = 0;
+            this.tab = o.value; this.page = 0; this.userTab = true;
             $$("button", seg).forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
             this.draw();
           });
@@ -674,6 +697,11 @@
       this.root.replaceChildren(bar, this.wrap, this.foot);
     }
     setRows(rows) { this.rows = rows; this.page = 0; this.draw(); }
+    setTab(value) {
+      if (!this.tabBtns || !this.tabBtns.has(value)) return;
+      this.tab = value; this.page = 0;
+      this.tabBtns.forEach((b, k) => b.setAttribute("aria-pressed", String(k === value)));
+    }
     filtered() {
       let r = this.rows;
       if (this.cfg.tabs) {
@@ -831,6 +859,7 @@
         name: "production-schedule", search: ["customer", "project", "owner", "note"], placeholder: "Search customer or project",
         tabs: { key: "status", label: "Show", options: [
           { value: "Week", label: "This week", match: (r) => V.prodWeek.includes(r) },
+          { value: "Next", label: "Next week", match: (r) => V.prodNext.includes(r) },
           { value: "Late", label: "Late & delayed", match: (r) => r.disp === "Late" || r.disp === "Delayed" },
           { value: "Open", label: "Not installed", match: (r) => r.status !== "Installed" },
           { value: "All", label: "All" }] },
@@ -1007,10 +1036,12 @@
     statStrip($("#prod-stats"), [
       { label: "Jobs this week", value: num(v.prodWeek.length), foot: `${num(v.prodWeek.filter((p) => p.status === "In production").length)} in production` },
       { label: "m² this week", value: m2(v.prodM2.week), foot: `${m2(v.prodM2.active)} in the workshop` },
+      { label: "Jobs next week", value: num(v.prodNext.length), foot: `${m2(v.prodM2.next)} planned` },
       { label: "Finish this week", value: num(v.prodFinishWeek.length), foot: `${m2(v.prodM2.finish)} · ${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
       { label: "Installations this week", value: num(v.prodInstallWeek.length), foot: next ? `Next: ${fday(next.install)}, ${next.customer || ""}` : `${m2(v.prodM2.install)} to install` },
       { label: "Late or delayed", value: num(v.prodLate.length), foot: v.prodLate.length ? h("span", { class: "delta bad" }, icon("alertCircle"), "Needs attention") : "None" },
     ]);
+    if (!TABLES.production.userTab) TABLES.production.setTab(prodWkKey() === "next" ? "Next" : "Week");
     TABLES.production.setRows(v.prod);
   }
 
@@ -1037,9 +1068,12 @@
   });
   chart("prodWeek", {
     fluid: true, draw: drawSchedule,
-    table: () => ({ head: ["Customer / project", "Product", "m²", "Start", "Finish", "Installation", "Status"], num: [2],
-      rows: V.prodWeek.map((p) => [[p.customer, p.project].filter(Boolean).join(" · ") || "—", p.product || "—", Number(p.m2) ? m2(p.m2) : "—", fdate(p.start), fdate(p.finish), fdate(p.install), p.disp]),
-      foot: V.prodWeek.length ? ["Total", "", m2(V.prodM2.week), "", "", "", ""] : null }),
+    table: () => {
+      const rows = V.prodWeeks[prodWkKey()].rows;
+      return { head: ["Customer / project", "Product", "m²", "Start", "Finish", "Installation", "Status"], num: [2],
+        rows: rows.map((p) => [[p.customer, p.project].filter(Boolean).join(" · ") || "—", p.product || "—", Number(p.m2) ? m2(p.m2) : "—", fdate(p.start), fdate(p.finish), fdate(p.install), p.disp]),
+        foot: rows.length ? ["Total", "", m2(sum(rows, (p) => p.m2)), "", "", "", ""] : null };
+    },
   });
   chart("convertWeeks", {
     draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "New paid customers", key: "in", values: V.convSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "New paid customers per week",
@@ -1780,10 +1814,10 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     return k;
   }
 
-  function pdfSchedule(k, v) {
-    const { doc, W, H, M } = k, rows = v.prodWeek;
-    if (!rows.length) return; // the job table below says there is nothing
-    const labW = 150, x0 = M + labW, x1 = W - M, cw = (x1 - x0) / 7, rowH = 24, ti = v.days.indexOf(v.T);
+  function pdfSchedule(k, wk, T, title, legend) {
+    const { doc, W, H, M } = k, rows = wk.rows;
+    if (!rows.length) return;
+    const labW = 150, x0 = M + labW, x1 = W - M, cw = (x1 - x0) / 7, rowH = 24, ti = wk.days.indexOf(T);
     const tone = { planned: [PC.inSoft, PC.in], active: [PC.in], done: [PC.goodFill], late: [PC.badFill] };
     const fit = (str, size, style, w) => {
       let t = pdfClean(str);
@@ -1801,28 +1835,33 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       if (stroke) { doc.setDrawColor(...stroke); doc.setLineWidth(1); }
       doc.roundedRect(x, y, w, h, r, r, stroke ? "FD" : "F");
     };
+    k.ensure(12 + 16 + 24 + rowH * Math.min(rows.length, 4) + (legend ? 14 : 0));
+    k.text(`${title} · ${fday(wk.ws)} – ${fday(wk.we)}`, M, k.y, { size: 10, style: "bold" });
+    k.text(`${num(rows.length)} ${rows.length === 1 ? "job" : "jobs"} · ${m2(sum(rows, (p) => p.m2))}`, W - M, k.y, { size: 8, color: PC.ink2, align: "right" });
+    k.y += 16;
     // legend
     let lx = M;
-    for (const [key, label] of [["planned", "Planned"], ["active", "In production"], ["done", "Ready / installed"], ["late", "Late / delayed"]]) {
-      swatch(lx, k.y - 6.5, 12, 7, key, 1.5);
-      k.text(label, lx + 16, k.y, { size: 7.5, color: PC.ink2 });
-      lx += 16 + k.width(label, 7.5) + 14;
+    if (legend) {
+      for (const [key, label] of [["planned", "Planned"], ["active", "In production"], ["done", "Ready / installed"], ["late", "Late / delayed"]]) {
+        swatch(lx, k.y - 6.5, 12, 7, key, 1.5);
+        k.text(label, lx + 16, k.y, { size: 7.5, color: PC.ink2 });
+        lx += 16 + k.width(label, 7.5) + 14;
+      }
+      diamond(lx + 4, k.y - 3, 3.5);
+      k.text("Installation day", lx + 12, k.y, { size: 7.5, color: PC.ink2 });
+      k.y += 12;
     }
-    diamond(lx + 4, k.y - 3, 3.5);
-    k.text("Installation day", lx + 12, k.y, { size: 7.5, color: PC.ink2 });
-    k.y += 12;
     const header = () => {
       const y = k.y;
       if (ti >= 0) { doc.setFillColor(...PC.today); doc.rect(x0 + cw * ti, y, cw, 24, "F"); }
-      v.days.forEach((d, i) => {
+      wk.days.forEach((d, i) => {
         const cx = x0 + cw * (i + 0.5), today = i === ti;
-        k.text(v.dayLabels[i].short, cx, y + 9, { size: 7, color: today ? PC.in : PC.muted, align: "center", style: today ? "bold" : "normal" });
+        k.text(wk.labels[i].short, cx, y + 9, { size: 7, color: today ? PC.in : PC.muted, align: "center", style: today ? "bold" : "normal" });
         k.text(String(parseD(d).getDate()), cx, y + 19, { size: 8.5, style: "bold", color: today ? PC.in : PC.ink2, align: "center" });
       });
       doc.setDrawColor(...PC.rule); doc.setLineWidth(0.75); doc.line(M, y + 24, x1, y + 24);
       k.y = y + 24;
     };
-    k.ensure(12 + 24 + rowH * Math.min(rows.length, 4));
     header();
     for (const p of rows) {
       if (k.y + rowH > H - 52) { doc.addPage(); k.y = M; header(); }
@@ -1833,13 +1872,13 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       doc.line(M, y + rowH, x1, y + rowH);
       k.text(fit(p.customer || p.project || "—", 8, "bold", labW - 10), M, y + 10.5, { size: 8, style: "bold" });
       k.text(fit([p.product, Number(p.m2) ? m2(p.m2) : "", p.disp].filter(Boolean).join(" · "), 6.8, "normal", labW - 10), M, y + 19.5, { size: 6.8, color: late ? PC.bad : PC.ink2 });
-      if (isISO(p.barFrom) && p.barFrom <= v.we && p.barTo >= v.ws) {
-        const cutL = p.barFrom < v.ws, cutR = p.barTo > v.we;
-        const a = cutL ? 0 : v.days.indexOf(p.barFrom), b = cutR ? 6 : v.days.indexOf(p.barTo);
+      if (isISO(p.barFrom) && p.barFrom <= wk.we && p.barTo >= wk.ws) {
+        const cutL = p.barFrom < wk.ws, cutR = p.barTo > wk.we;
+        const a = cutL ? 0 : wk.days.indexOf(p.barFrom), b = cutR ? 6 : wk.days.indexOf(p.barTo);
         const bx = x0 + cw * a + (cutL ? 0 : 2.5), bw = cw * (b - a + 1) - (cutL ? 0 : 2.5) - (cutR ? 0 : 2.5);
         swatch(bx, y + rowH / 2 - 4.5, bw, 9, PROD_TONE[p.disp] || "planned");
       }
-      if (within(p.install, v.ws, v.we)) diamond(x0 + cw * (v.days.indexOf(p.install) + 0.5), y + rowH / 2, 4, true);
+      if (within(p.install, wk.ws, wk.we)) diamond(x0 + cw * (wk.days.indexOf(p.install) + 0.5), y + rowH / 2, 4, true);
       k.y += rowH;
     }
     k.y += 18;
@@ -1930,20 +1969,22 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
 
     // 10 Week production schedule — its own page: numbers, schedule chart, job table
     if (k.y > k.M + 40) { k.doc.addPage(); k.y = k.M; }
-    k.heading("10", "Week production schedule", `Week ${fday(v.ws)} – ${fday(v.we)}`);
-    const prows = v.prodWeek;
+    k.heading("10", "Week production schedule", "This week and next week");
+    const prows = [...new Set([...v.prodWeek, ...v.prodNext])].sort((a, b) => a.from.localeCompare(b.from) || a.rank - b.rank);
     k.kpis([
-      { label: "Jobs this week", value: num(prows.length), note: `${num(prows.filter((p) => p.status === "In production").length)} in production` },
-      { label: "m² this week", value: m2(v.prodM2.week), note: `${m2(v.prodM2.active)} in the workshop` },
+      { label: "Jobs this week", value: num(v.prodWeek.length), note: `${m2(v.prodM2.week)} · ${num(v.prodWeek.filter((p) => p.status === "In production").length)} in production` },
+      { label: "Jobs next week", value: num(v.prodNext.length), note: `${m2(v.prodM2.next)} planned` },
       { label: "Finish this week", value: num(v.prodFinishWeek.length), note: `${m2(v.prodM2.finish)} · ${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
       { label: "Late or delayed", value: num(v.prodLate.length), note: v.prodLate.length ? "Needs attention" : "None", color: v.prodLate.length ? PC.bad : null },
     ]);
-    pdfSchedule(k, v);
+    const shown = ["this", "next"].filter((w) => v.prodWeeks[w].rows.length);
+    shown.forEach((w, i) => pdfSchedule(k, v.prodWeeks[w], v.T, v.prodWeeks[w].title, i === 0));
+    if (prows.length) { k.ensure(60); k.text("All jobs this week and next week", k.M, k.y, { size: 10, style: "bold" }); k.y += 8; }
     k.table({ head: ["Start", "Finish", "Customer", "Product", "m²", "Responsible", "Status", "Installation"], align: ["l", "l", "l", "l", "r", "l", "l", "l"], fontSize: 7.5,
       body: prows.map((p) => [fday(p.start), fday(p.finish), p.customer, p.product, Number(p.m2) ? m2(p.m2) : "—", p.owner, p.disp, fday(p.install)]),
-      foot: prows.length ? ["Total", "", "", "", m2(v.prodM2.week), "", "", ""] : null,
+      foot: prows.length ? ["Total", "", "", "", m2(sum(prows, (p) => p.m2)), "", "", ""] : null,
       color: (ri, ci) => (ci === 6 && prows[ri] && (prows[ri].disp === "Late" || prows[ri].disp === "Delayed") ? PC.bad : null),
-      empty: "Nothing scheduled in production this week." });
+      empty: "Nothing scheduled in production this week or next week." });
     const lateOther = v.prodLate.filter((p) => !prows.includes(p));
     if (lateOther.length) k.line(`Also late or delayed: ${lateOther.map((p) => `${p.customer} (${p.disp}, finish ${fdate(p.finish)})`).join(" · ")}`);
 
