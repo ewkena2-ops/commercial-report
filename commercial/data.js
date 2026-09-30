@@ -36,6 +36,6 @@ window.REPORT_DATA = {
   // one row per platform per week. week = any date in that week
   social: [],
 
-  // week production schedule. status: Planned | In production | Ready | Installed | Delayed
+  // week production schedule. m2 = size in square metres. status: Planned | In production | Ready | Installed | Delayed
   production: [],
 };

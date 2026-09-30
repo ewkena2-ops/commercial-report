@@ -22,7 +22,7 @@ A daily commercial report for a kitchen & cabinet business, built around ten que
 - Pick any **date** at the top (arrows move one day). The week runs Monday to Sunday.
 - **Data sheet** holds the records, one tab per topic: Payments received, Leads, Pre-measurement, Expected advance, Expected final, Problems, Social media, Production schedule. Type rows directly, or **Import Excel / CSV**.
   - Setting a lead's stage to *Paid customer* fills in the paid date. Setting a problem to *Solved* fills in the solved date.
-  - Production schedule: one row per job with production start, planned finish and installation date. A job is *Late* when its planned finish has passed and it is not Ready. Setting a job to *Installed* fills in the installation date.
+  - Production schedule: one row per job with size (m²), production start, planned finish and installation date. The report adds up the m² for the week. A job is *Late* when its planned finish has passed and it is not Ready. Setting a job to *Installed* fills in the installation date.
 - **Download PDF** makes a 3 to 4 page report for the selected date. Amharic text is supported through the bundled Abyssinica SIL font (`fonts/`, SIL Open Font License).
 
 ## Sharing (no login)

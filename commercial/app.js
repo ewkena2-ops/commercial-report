@@ -142,6 +142,7 @@
   const money = (n) => fMoney.format(Math.round(Number(n) || 0));
   const moneyC = (n) => (Math.abs(n) < 10000 ? fMoney.format(Math.round(n)) : fMoneyC.format(n));
   const num = (n) => fNum.format(n);
+  const m2 = (n) => `${new Intl.NumberFormat(LOC, { maximumFractionDigits: 1 }).format(Number(n) || 0)} m²`;
   const pct = (n) => (Number.isFinite(n) ? fPct.format(n) : "—");
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const isISO = (v) => isoRe.test(String(v ?? ""));
@@ -312,6 +313,8 @@
     v.prodFinishWeek = v.prod.filter((p) => within(p.finish, ws, we));
     v.prodInstallWeek = v.prod.filter((p) => within(p.install, ws, we));
     v.prodLate = v.prod.filter((p) => p.disp === "Late" || p.disp === "Delayed");
+    const area = (rows) => sum(rows, (p) => p.m2);
+    v.prodM2 = { week: area(v.prodWeek), finish: area(v.prodFinishWeek), install: area(v.prodInstallWeek), active: area(v.prodWeek.filter((p) => p.status === "In production" || p.disp === "Late" || p.disp === "Delayed")) };
 
     v.weekLabels = weeks.map((w) => ({ short: fDay.format(parseD(w)).replace(/^[^,]+,\s*/, ""), long: `Week of ${fdate(w)}` }));
     v.dayLabels = days.map((d) => ({ short: fDay.format(parseD(d)).split(",")[0], long: flong(d) }));
@@ -554,13 +557,14 @@
       if ((p.disp === "Late" || p.disp === "Delayed") && isISO(prodFrom) && prodFrom <= v.T && !(prodTo >= v.T)) prodTo = v.T; // still in the workshop
       const tip = () => [
         { value: p.disp, label: "status" },
+        ...(Number(p.m2) ? [{ value: m2(p.m2), label: "size" }] : []),
         { value: `${fdate(p.start)} – ${fdate(p.finish)}`, label: "production" },
         { value: isISO(p.install) ? flong(p.install) : "not booked", label: "installation" },
         ...(p.owner ? [{ value: p.owner, label: "responsible" }] : []),
       ];
       const row = h("div", { class: "gt-row", tabindex: 0, role: "listitem",
-        "aria-label": `${p.customer || "Job"}, ${p.product || ""}: ${p.disp}. Production ${fdate(p.start)} to ${fdate(p.finish)}. Installation ${isISO(p.install) ? fdate(p.install) : "not booked"}.` },
-        h("div", { class: "gt-label" }, h("strong", { title: p.project || p.customer }, p.customer || p.project || "—"), h("span", {}, [p.product, p.disp].filter(Boolean).join(" · "))),
+        "aria-label": `${p.customer || "Job"}, ${p.product || ""}${Number(p.m2) ? `, ${m2(p.m2)}` : ""}: ${p.disp}. Production ${fdate(p.start)} to ${fdate(p.finish)}. Installation ${isISO(p.install) ? fdate(p.install) : "not booked"}.` },
+        h("div", { class: "gt-label" }, h("strong", { title: p.project || p.customer }, p.customer || p.project || "—"), h("span", {}, [p.product, Number(p.m2) ? m2(p.m2) : "", p.disp].filter(Boolean).join(" · "))),
         ...cells());
       if (isISO(prodFrom) && prodFrom <= v.we && prodTo >= v.ws) {
         const a = dayIdx(prodFrom), b = dayIdx(prodTo);
@@ -836,11 +840,13 @@
           { key: "finish", label: "Finish", cell: (r) => fday(r.finish), cls: "muted" },
           { key: "customer", label: "Customer / project", cell: (r) => twoLine(r.customer, r.project) },
           { key: "product", label: "Product" },
+          { key: "m2", label: "m²", num: true, cell: (r) => (Number(r.m2) ? m2(r.m2) : "—"), sortVal: (r) => Number(r.m2) || 0 },
           { key: "owner", label: "Responsible" },
           { key: "disp", label: "Status", cell: (r) => badge(r.disp), sortVal: (r) => r.rank, csv: (r) => r.disp },
           { key: "install", label: "Installation", cell: (r) => fday(r.install), cls: "muted" },
           { key: "note", label: "Note", cls: "wrap muted" },
         ],
+        summary: (rows) => ["Total ", h("strong", {}, m2(sum(rows, (r) => r.m2)))],
         emptyTitle: "No production jobs here", emptyText: "Add jobs in the Data sheet (Production schedule tab).",
       }),
       converted: new DataTable($("#convert-table"), {
@@ -999,8 +1005,9 @@
     const next = v.prod.filter((p) => isISO(p.install) && p.install >= v.T && p.status !== "Installed").sort((a, b) => a.install.localeCompare(b.install))[0];
     statStrip($("#prod-stats"), [
       { label: "Jobs this week", value: num(v.prodWeek.length), foot: `${num(v.prodWeek.filter((p) => p.status === "In production").length)} in production` },
-      { label: "Finish this week", value: num(v.prodFinishWeek.length), foot: `${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
-      { label: "Installations this week", value: num(v.prodInstallWeek.length), foot: next ? `Next: ${fday(next.install)}, ${next.customer || ""}` : "None booked" },
+      { label: "m² this week", value: m2(v.prodM2.week), foot: `${m2(v.prodM2.active)} in the workshop` },
+      { label: "Finish this week", value: num(v.prodFinishWeek.length), foot: `${m2(v.prodM2.finish)} · ${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
+      { label: "Installations this week", value: num(v.prodInstallWeek.length), foot: next ? `Next: ${fday(next.install)}, ${next.customer || ""}` : `${m2(v.prodM2.install)} to install` },
       { label: "Late or delayed", value: num(v.prodLate.length), foot: v.prodLate.length ? h("span", { class: "delta bad" }, icon("alertCircle"), "Needs attention") : "None" },
     ]);
     TABLES.production.setRows(v.prod);
@@ -1029,8 +1036,9 @@
   });
   chart("prodWeek", {
     fluid: true, draw: drawSchedule,
-    table: () => ({ head: ["Customer / project", "Product", "Start", "Finish", "Installation", "Status"],
-      rows: V.prodWeek.map((p) => [[p.customer, p.project].filter(Boolean).join(" · ") || "—", p.product || "—", fdate(p.start), fdate(p.finish), fdate(p.install), p.disp]) }),
+    table: () => ({ head: ["Customer / project", "Product", "m²", "Start", "Finish", "Installation", "Status"], num: [2],
+      rows: V.prodWeek.map((p) => [[p.customer, p.project].filter(Boolean).join(" · ") || "—", p.product || "—", Number(p.m2) ? m2(p.m2) : "—", fdate(p.start), fdate(p.finish), fdate(p.install), p.disp]),
+      foot: V.prodWeek.length ? ["Total", "", m2(V.prodM2.week), "", "", "", ""] : null }),
   });
   chart("convertWeeks", {
     draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "New paid customers", key: "in", values: V.convSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "New paid customers per week",
@@ -1155,7 +1163,7 @@
     ] },
     { id: "production", label: "Production schedule", prefix: "PD-", aliases: ["productionschedule", "weekproduction", "weeklyproduction", "weekproductionschedule", "schedule"], cols: [
       col("id", "ID", "text", 90), col("customer", "Customer", "text", 170, { suggest: true }), col("project", "Project / order", "text", 190, { suggest: true }),
-      col("product", "Product", "select", 120, { options: PRODUCTS }), col("start", "Production start", "date", 150), col("finish", "Planned finish", "date", 150),
+      col("product", "Product", "select", 120, { options: PRODUCTS }), col("m2", "Size (m²)", "number", 100), col("start", "Production start", "date", 150), col("finish", "Planned finish", "date", 150),
       col("install", "Installation date", "date", 150), col("status", "Status", "select", 130, { options: PROD_STATUS }),
       col("owner", "Responsible", "text", 130, { suggest: true }), col("note", "Note", "text", 220),
     ], onChange: (r, key) => {
@@ -1594,7 +1602,8 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       let inst = install;
       if (i === 5 && finish < T) { status = "In production"; inst = addDays(T, 2); } // finish date passed, still in the workshop: shows as Late
       if (i === 8 && status === "In production") status = "Delayed";
-      d.production.push({ id: `PD-${String(++pd).padStart(3, "0")}`, customer: l.customer, project: `${l.product} – ${l.customer}`, product: l.product, start, finish,
+      const [lo, hi] = { Kitchen: [8, 22], Wardrobe: [4, 12], Vanity: [1, 3], "TV unit": [2, 5], Door: [2, 4], Office: [6, 15], Other: [1, 6] }[l.product] || [2, 8];
+      d.production.push({ id: `PD-${String(++pd).padStart(3, "0")}`, customer: l.customer, project: `${l.product} – ${l.customer}`, product: l.product, m2: Math.round((lo + rnd() * (hi - lo)) * 2) / 2, start, finish,
         install: status === "Planned" && i % 2 ? "" : inst, status, owner: pick(["Workshop A", "Workshop B"]), note: status === "Delayed" ? "Waiting for board delivery" : "" });
     });
     d.leads.forEach((l) => delete l._value);
@@ -1853,11 +1862,12 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
       body: conv.map((l) => [fday(l.paid), l.customer, l.source, l.product, fdate(l.date)]), empty: "No new paid customers this week." });
 
     // 10 Week production schedule
-    k.heading("10", "Week production schedule", `${num(v.prodWeek.length)} jobs · ${num(v.prodFinishWeek.length)} finish · ${num(v.prodInstallWeek.length)} installations · ${num(v.prodLate.length)} late or delayed`);
+    k.heading("10", "Week production schedule", `${num(v.prodWeek.length)} jobs · ${m2(v.prodM2.week)} · ${num(v.prodFinishWeek.length)} finish · ${num(v.prodInstallWeek.length)} installations · ${num(v.prodLate.length)} late or delayed`);
     const prows = v.prodWeek;
-    k.table({ head: ["Start", "Finish", "Customer", "Product", "Responsible", "Status", "Installation"], align: ["l", "l", "l", "l", "l", "l", "l"], fontSize: 7.5,
-      body: prows.map((p) => [fday(p.start), fday(p.finish), p.customer, p.product, p.owner, p.disp, fday(p.install)]),
-      color: (ri, ci) => (ci === 5 && prows[ri] && (prows[ri].disp === "Late" || prows[ri].disp === "Delayed") ? PC.bad : null),
+    k.table({ head: ["Start", "Finish", "Customer", "Product", "m²", "Responsible", "Status", "Installation"], align: ["l", "l", "l", "l", "r", "l", "l", "l"], fontSize: 7.5,
+      body: prows.map((p) => [fday(p.start), fday(p.finish), p.customer, p.product, Number(p.m2) ? m2(p.m2) : "—", p.owner, p.disp, fday(p.install)]),
+      foot: prows.length ? ["Total", "", "", "", m2(v.prodM2.week), "", "", ""] : null,
+      color: (ri, ci) => (ci === 6 && prows[ri] && (prows[ri].disp === "Late" || prows[ri].disp === "Delayed") ? PC.bad : null),
       empty: "Nothing scheduled in production this week." });
     const lateOther = v.prodLate.filter((p) => !prows.includes(p));
     if (lateOther.length) k.line(`Also late or delayed: ${lateOther.map((p) => `${p.customer} (${p.disp}, finish ${fdate(p.finish)})`).join(" · ")}`);
