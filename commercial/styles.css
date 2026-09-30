@@ -779,6 +779,41 @@ tr:hover .del-btn, .del-btn:focus-visible { opacity: 1; }
   .sidebar-foot { padding-top: 10px; }
 }
 
+/* ---------- week production schedule (one row per job, Monday to Sunday) ---------- */
+.gt { --gt-label: minmax(128px, 1.4fr); display: grid; gap: 4px; padding: 8px 8px 6px 14px; }
+.gt-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); padding-bottom: 8px; }
+.gt-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.gt-sw { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+.gt-sw.pin { width: 9px; height: 9px; border-radius: 2px; transform: rotate(45deg); background: var(--ink); }
+.gt-list { display: grid; gap: 4px; }
+.gt-row { display: grid; grid-template-columns: var(--gt-label) repeat(7, minmax(0, 1fr)); align-items: center; min-height: 42px; border-radius: 8px; }
+.gt-row > * { grid-row: 1; }
+.gt-list .gt-row:hover, .gt-list .gt-row:focus-visible { background: var(--hover-wash); outline: none; }
+.gt-list .gt-row:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.gt-head { min-height: 0; padding-bottom: 2px; }
+.gt-day { text-align: center; font-size: 11.5px; color: var(--muted); line-height: 1.2; }
+.gt-day span { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.gt-day.today, .gt-day.today span { color: var(--accent-ink); }
+.gt-label { grid-column: 1; min-width: 0; padding: 0 10px 0 8px; display: grid; line-height: 1.25; }
+.gt-label strong { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-label span { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gt-cell { align-self: stretch; border-left: 1px solid var(--grid); }
+.gt-cell.today { background: var(--accent-soft); }
+.gt-bar { height: 16px; margin: 0 4px; border-radius: 4px; z-index: 1; }
+.gt-bar.cont-l { margin-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.gt-bar.cont-r { margin-right: 0; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.gt-bar.planned, .gt-sw.planned { background: var(--c-in-track); box-shadow: inset 0 0 0 1.5px var(--c-in); }
+.gt-bar.active, .gt-sw.active { background: var(--c-in); }
+.gt-bar.done, .gt-sw.done { background: var(--good); }
+.gt-bar.late, .gt-sw.late { background: var(--critical); }
+.gt-pin { justify-self: center; width: 11px; height: 11px; border-radius: 2px; transform: rotate(45deg); background: var(--ink); box-shadow: 0 0 0 2px var(--surface); z-index: 2; }
+@media (max-width: 560px) {
+  .gt { --gt-label: minmax(96px, 1.1fr); padding: 4px 0 4px 6px; }
+  .gt-bar { margin: 0 2px; }
+  .gt-day { font-size: 10.5px; }
+}
+@media (forced-colors: active) { .gt-bar, .gt-sw, .gt-pin { forced-color-adjust: none; border: 1px solid CanvasText; } }
+
 /* ==========================================================================
    Online mode: status screens, save status
    ========================================================================== */

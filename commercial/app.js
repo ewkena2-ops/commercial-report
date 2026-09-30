@@ -64,6 +64,7 @@
     upload: '<path d="M12 21V9M7 14l5-5 5 5M5 3h14"/>',
     code: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
   };
   function icon(name) {
@@ -83,11 +84,12 @@
   const EXP_STATUS = ["Expected", "Delayed", "Received", "Cancelled"];
   const PROB_STATUS = ["Open", "In progress", "Solved"];
   const MEAS_STATUS = ["Taken", "Scheduled", "Cancelled"];
+  const PROD_STATUS = ["Planned", "In production", "Ready", "Installed", "Delayed"];
 
   /* ---------- data store ---------- */
   const SAMPLE = window.REPORT_DATA || { company: {} };
   const STORE_KEY = "cr-daily-v1";
-  const DATASETS = ["leads", "measurements", "payments", "expAdvance", "expFinal", "problems", "social"];
+  const DATASETS = ["leads", "measurements", "payments", "expAdvance", "expFinal", "problems", "social", "production"];
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   function normalize(d) {
@@ -295,6 +297,22 @@
     const dd = conv12.filter((l) => isISO(l.date)).map((l) => daysBetween(l.date, paidDateOf(l))).filter((n) => n >= 0);
     v.convDays = dd.length ? dd.reduce((a, b) => a + b, 0) / dd.length : NaN;
 
+    // 10 week production schedule: a job runs from production start to planned finish, then installation
+    v.prod = D.production.map((p) => {
+      const st = p.status || "Planned";
+      const from = isISO(p.start) ? p.start : isISO(p.finish) ? p.finish : isISO(p.install) ? p.install : "";
+      const disp = (st === "Planned" || st === "In production") && isISO(p.finish) && p.finish < T ? "Late" : st;
+      // a late or delayed job is still in the workshop today
+      const busyTo = (disp === "Late" || disp === "Delayed") && from && from <= T ? T : "";
+      const to = [p.start, p.finish, p.install, busyTo].filter(isISO).sort().pop() || from;
+      const rank = { Late: 0, Delayed: 1, "In production": 2, Planned: 3, Ready: 4, Installed: 5 }[disp] ?? 3;
+      return { ...p, disp, rank, from, to };
+    });
+    v.prodWeek = v.prod.filter((p) => isISO(p.from) && p.from <= we && p.to >= ws).sort((a, b) => a.from.localeCompare(b.from) || a.rank - b.rank);
+    v.prodFinishWeek = v.prod.filter((p) => within(p.finish, ws, we));
+    v.prodInstallWeek = v.prod.filter((p) => within(p.install, ws, we));
+    v.prodLate = v.prod.filter((p) => p.disp === "Late" || p.disp === "Delayed");
+
     v.weekLabels = weeks.map((w) => ({ short: fDay.format(parseD(w)).replace(/^[^,]+,\s*/, ""), long: `Week of ${fdate(w)}` }));
     v.dayLabels = days.map((d) => ({ short: fDay.format(parseD(d)).split(",")[0], long: flong(d) }));
     return v;
@@ -325,6 +343,7 @@
     "Due today": "warning", "This week": "warning", "In progress": "warning", Expected: "warning",
     Delayed: "serious", Open: "serious", Overdue: "critical", Missed: "critical", Taken: "good", Scheduled: "warning",
     Lost: "neutral", Later: "neutral", Cancelled: "neutral", "No date": "neutral",
+    Planned: "neutral", "In production": "warning", Late: "critical",
   };
   const STATUS_ICON = { good: "check", warning: "clock", serious: "alertTri", critical: "alertCircle", neutral: "circle" };
   function badge(text) {
@@ -515,6 +534,46 @@
       list.append(row);
     }
     el.replaceChildren(list);
+  }
+
+  const PROD_TONE = { Planned: "planned", "In production": "active", Ready: "done", Installed: "done", Delayed: "late", Late: "late" };
+  function drawSchedule(el) {
+    const v = V, rows = v.prodWeek;
+    if (!rows.length) { el.replaceChildren(emptyState("Nothing scheduled this week", "Add jobs in the Data sheet (Production schedule tab).")); return; }
+    const dayIdx = (iso) => (iso < v.ws ? 0 : iso > v.we ? 6 : v.days.indexOf(iso));
+    const cells = () => v.days.map((d, i) => h("div", { class: `gt-cell${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }));
+    const legend = h("div", { class: "gt-legend" },
+      [["planned", "Planned"], ["active", "In production"], ["done", "Ready / installed"], ["late", "Late / delayed"]].map(([k, t]) => h("span", {}, h("i", { class: `gt-sw ${k}` }), t)),
+      h("span", {}, h("i", { class: "gt-sw pin" }), "Installation day"));
+    const head = h("div", { class: "gt-row gt-head", "aria-hidden": "true" }, h("div", { class: "gt-label" }),
+      v.days.map((d, i) => h("div", { class: `gt-day${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }, v.dayLabels[i].short, h("span", {}, String(parseD(d).getDate())))));
+    const list = h("div", { class: "gt-list", role: "list" });
+    for (const p of rows) {
+      const prodFrom = isISO(p.start) ? p.start : p.finish;
+      let prodTo = isISO(p.finish) ? p.finish : p.start;
+      if ((p.disp === "Late" || p.disp === "Delayed") && isISO(prodFrom) && prodFrom <= v.T && !(prodTo >= v.T)) prodTo = v.T; // still in the workshop
+      const tip = () => [
+        { value: p.disp, label: "status" },
+        { value: `${fdate(p.start)} – ${fdate(p.finish)}`, label: "production" },
+        { value: isISO(p.install) ? flong(p.install) : "not booked", label: "installation" },
+        ...(p.owner ? [{ value: p.owner, label: "responsible" }] : []),
+      ];
+      const row = h("div", { class: "gt-row", tabindex: 0, role: "listitem",
+        "aria-label": `${p.customer || "Job"}, ${p.product || ""}: ${p.disp}. Production ${fdate(p.start)} to ${fdate(p.finish)}. Installation ${isISO(p.install) ? fdate(p.install) : "not booked"}.` },
+        h("div", { class: "gt-label" }, h("strong", { title: p.project || p.customer }, p.customer || p.project || "—"), h("span", {}, [p.product, p.disp].filter(Boolean).join(" · "))),
+        ...cells());
+      if (isISO(prodFrom) && prodFrom <= v.we && prodTo >= v.ws) {
+        const a = dayIdx(prodFrom), b = dayIdx(prodTo);
+        row.append(h("div", { class: `gt-bar ${PROD_TONE[p.disp] || "planned"}${prodFrom < v.ws ? " cont-l" : ""}${prodTo > v.we ? " cont-r" : ""}`, style: `grid-column:${a + 2} / ${b + 3}` }));
+      }
+      if (within(p.install, v.ws, v.we)) row.append(h("i", { class: "gt-pin", style: `grid-column:${v.days.indexOf(p.install) + 2}`, title: `Installation ${flong(p.install)}` }));
+      row.addEventListener("pointermove", (e) => showTip(e.clientX, e.clientY, p.customer || p.project || "Job", tip()));
+      row.addEventListener("pointerleave", hideTip);
+      row.addEventListener("focus", () => tipAt(row, p.customer || p.project || "Job", tip()));
+      row.addEventListener("blur", hideTip);
+      list.append(row);
+    }
+    el.replaceChildren(h("div", { class: "gt" }, legend, head, list));
   }
 
   function simpleTable({ head, rows, num: numCols = [], foot }) {
@@ -763,6 +822,27 @@
         ],
         emptyTitle: "No problems", emptyText: "Good news, or add problems in the Data sheet.",
       }),
+      production: new DataTable($("#prod-table"), {
+        name: "production-schedule", search: ["customer", "project", "owner", "note"], placeholder: "Search customer or project",
+        tabs: { key: "status", label: "Show", options: [
+          { value: "Week", label: "This week", match: (r) => V.prodWeek.includes(r) },
+          { value: "Late", label: "Late & delayed", match: (r) => r.disp === "Late" || r.disp === "Delayed" },
+          { value: "Open", label: "Not installed", match: (r) => r.status !== "Installed" },
+          { value: "All", label: "All" }] },
+        filters: [{ key: "product", label: "Product", options: PRODUCTS }],
+        sort: { key: "start", dir: 1 },
+        columns: [
+          { key: "start", label: "Start", cell: (r) => fday(r.start), cls: "muted", sortVal: (r) => r.from || "9999" },
+          { key: "finish", label: "Finish", cell: (r) => fday(r.finish), cls: "muted" },
+          { key: "customer", label: "Customer / project", cell: (r) => twoLine(r.customer, r.project) },
+          { key: "product", label: "Product" },
+          { key: "owner", label: "Responsible" },
+          { key: "disp", label: "Status", cell: (r) => badge(r.disp), sortVal: (r) => r.rank, csv: (r) => r.disp },
+          { key: "install", label: "Installation", cell: (r) => fday(r.install), cls: "muted" },
+          { key: "note", label: "Note", cls: "wrap muted" },
+        ],
+        emptyTitle: "No production jobs here", emptyText: "Add jobs in the Data sheet (Production schedule tab).",
+      }),
       converted: new DataTable($("#convert-table"), {
         name: "new-paid-customers",
         sort: { key: "paid", dir: -1 },
@@ -914,6 +994,18 @@
     }));
   }
 
+  function renderProduction() {
+    const v = V;
+    const next = v.prod.filter((p) => isISO(p.install) && p.install >= v.T && p.status !== "Installed").sort((a, b) => a.install.localeCompare(b.install))[0];
+    statStrip($("#prod-stats"), [
+      { label: "Jobs this week", value: num(v.prodWeek.length), foot: `${num(v.prodWeek.filter((p) => p.status === "In production").length)} in production` },
+      { label: "Finish this week", value: num(v.prodFinishWeek.length), foot: `${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
+      { label: "Installations this week", value: num(v.prodInstallWeek.length), foot: next ? `Next: ${fday(next.install)}, ${next.customer || ""}` : "None booked" },
+      { label: "Late or delayed", value: num(v.prodLate.length), foot: v.prodLate.length ? h("span", { class: "delta bad" }, icon("alertCircle"), "Needs attention") : "None" },
+    ]);
+    TABLES.production.setRows(v.prod);
+  }
+
   /* ---------- chart definitions ---------- */
   const one = (i) => new Set([i]);
   chart("paidDays", {
@@ -934,6 +1026,11 @@
     draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "Leads", key: "in", values: V.leadSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "New leads per week",
       extraRows: (i) => [{ sep: true, value: num(V.convSeries[i]), label: "became paid customers" }] }),
     table: () => ({ head: ["Week", "Leads", "Paid customers"], num: [1, 2], rows: V.weekLabels.map((w, i) => [w.long, num(V.leadSeries[i]), num(V.convSeries[i])]) }),
+  });
+  chart("prodWeek", {
+    fluid: true, draw: drawSchedule,
+    table: () => ({ head: ["Customer / project", "Product", "Start", "Finish", "Installation", "Status"],
+      rows: V.prodWeek.map((p) => [[p.customer, p.project].filter(Boolean).join(" · ") || "—", p.product || "—", fdate(p.start), fdate(p.finish), fdate(p.install), p.disp]) }),
   });
   chart("convertWeeks", {
     draw: (el) => drawColumns(el, { labels: V.weekLabels, series: [{ name: "New paid customers", key: "in", values: V.convSeries }], selected: one(11), fmt: num, fmtTick: num, integer: true, label: "New paid customers per week",
@@ -970,6 +1067,7 @@
     renderSocial();
     renderWeekly();
     renderConverted();
+    renderProduction();
     Object.keys(CHARTS).forEach(drawChart);
   }
 
@@ -979,7 +1077,7 @@
     $("#foot-company").textContent = C.name || "Company";
     $("#eyebrow").textContent = C.name || "Daily commercial report";
     $("#prepared-by").textContent = C.preparedBy || "—";
-    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, pre-measurements, expected advance and final payments, problems, social media and new paid customers.`;
+    $("#lede").textContent = `${C.tagline || "Daily commercial report"}: money paid today, leads, pre-measurements, expected advance and final payments, problems, social media, new paid customers and the week's production schedule.`;
     $("#foot-period").textContent = `amounts in ${CUR}`;
     $("#foot-note").textContent = CONNECTED ? "Every number is calculated from the Data sheet. Records are saved online and shared with everyone who has this report's link." : D.sample
       ? "Showing example data. Clear it with Start empty in the Data sheet."
@@ -994,7 +1092,7 @@
     let msg = null;
     if (CONNECTED && !empty) { el.hidden = true; return; }
     if (CONNECTED) msg = [h("strong", {}, "No records yet. "), canWrite() ? "Open the Data sheet to add records. Everything you type is shared with everyone who has this report's link." : "Nothing has been entered yet."];
-    else if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, pre-measurements, expected payments, problems and social media. Or tap Try example data to see how the report looks."];
+    else if (empty) msg = [h("strong", {}, "No records yet. "), "Open the Data sheet to add payments, leads, pre-measurements, expected payments, problems, social media and the production schedule. Or tap Try example data to see how the report looks."];
     else if (D.sample) msg = [h("strong", {}, "Example data. "), "These records are made up so you can see the report. Clear them with Start empty in the Data sheet."];
     else if (LOCAL) msg = [h("strong", {}, "Saved on this device. "), "Back up regularly with Export Excel in the Data sheet."];
     el.className = "notice report-only";
@@ -1055,6 +1153,15 @@
       col("id", "ID", "text", 84), col("week", "Week (any date in it)", "date", 170), col("platform", "Platform", "select", 120, { options: SOCIAL }),
       col("posts", "Posts", "number", 90), col("followers", "New followers", "number", 120), col("views", "Views", "number", 110), col("inquiries", "Inquiries", "number", 100),
     ] },
+    { id: "production", label: "Production schedule", prefix: "PD-", aliases: ["productionschedule", "weekproduction", "weeklyproduction", "weekproductionschedule", "schedule"], cols: [
+      col("id", "ID", "text", 90), col("customer", "Customer", "text", 170, { suggest: true }), col("project", "Project / order", "text", 190, { suggest: true }),
+      col("product", "Product", "select", 120, { options: PRODUCTS }), col("start", "Production start", "date", 150), col("finish", "Planned finish", "date", 150),
+      col("install", "Installation date", "date", 150), col("status", "Status", "select", 130, { options: PROD_STATUS }),
+      col("owner", "Responsible", "text", 130, { suggest: true }), col("note", "Note", "text", 220),
+    ], onChange: (r, key) => {
+      if (key === "status" && r.status === "Installed" && !isISO(r.install)) { r.install = todayISO(); return ["install"]; }
+      return [];
+    } },
   ];
   const SETTINGS = [
     { key: "name", label: "Company name" },
@@ -1390,7 +1497,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     const reps = ["Sara M.", "Daniel K.", "Liya A.", "Samuel B."];
     const price = { Kitchen: [180000, 950000], Wardrobe: [60000, 320000], Vanity: [25000, 95000], "TV unit": [35000, 140000], Door: [20000, 90000], Office: [80000, 400000], Other: [10000, 60000] };
     const phone = () => `09${Math.floor(10000000 + rnd() * 89999999)}`;
-    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], social: [], measurements: [] };
+    const d = { sample: true, company: { ...D.company }, leads: [], payments: [], expAdvance: [], expFinal: [], problems: [], social: [], measurements: [], production: [] };
     const start = addDays(weekStart(T), -77);
     let n = 0;
     for (let day = start; day <= T; day = addDays(day, 1)) {
@@ -1475,6 +1582,21 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
           followers: Math.round((40 + rnd() * 160) * base), views: Math.round((3000 + rnd() * 16000) * base), inquiries: Math.round((4 + rnd() * 14) * base) });
       }
     }
+    // production schedule: the latest paid customers, spread around this week so every stage shows
+    let pd = 0;
+    const ws0 = weekStart(T);
+    const recentPaid = d.leads.filter((x) => x.stage === "Paid customer").sort((a, b) => b.paidDate.localeCompare(a.paidDate)).slice(0, 14).reverse();
+    recentPaid.forEach((l, i) => {
+      const start = addDays(ws0, -12 + Math.round(i * 1.4) + Math.floor(rnd() * 2));
+      const finish = addDays(start, 4 + Math.floor(rnd() * 6));
+      const install = addDays(finish, 1 + Math.floor(rnd() * 3));
+      let status = install < T ? "Installed" : finish < T ? "Ready" : start <= T ? "In production" : "Planned";
+      let inst = install;
+      if (i === 5 && finish < T) { status = "In production"; inst = addDays(T, 2); } // finish date passed, still in the workshop: shows as Late
+      if (i === 8 && status === "In production") status = "Delayed";
+      d.production.push({ id: `PD-${String(++pd).padStart(3, "0")}`, customer: l.customer, project: `${l.product} – ${l.customer}`, product: l.product, start, finish,
+        install: status === "Planned" && i % 2 ? "" : inst, status, owner: pick(["Workshop A", "Workshop B"]), note: status === "Delayed" ? "Waiting for board delivery" : "" });
+    });
     d.leads.forEach((l) => delete l._value);
     return d;
   }
@@ -1729,6 +1851,16 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     const conv = v.convWeek.map((l) => ({ ...l, paid: v.paidDateOf(l) }));
     k.table({ head: ["Paid date", "Customer", "Source", "Product", "Lead date"], align: ["l", "l", "l", "l", "l"],
       body: conv.map((l) => [fday(l.paid), l.customer, l.source, l.product, fdate(l.date)]), empty: "No new paid customers this week." });
+
+    // 10 Week production schedule
+    k.heading("10", "Week production schedule", `${num(v.prodWeek.length)} jobs · ${num(v.prodFinishWeek.length)} finish · ${num(v.prodInstallWeek.length)} installations · ${num(v.prodLate.length)} late or delayed`);
+    const prows = v.prodWeek;
+    k.table({ head: ["Start", "Finish", "Customer", "Product", "Responsible", "Status", "Installation"], align: ["l", "l", "l", "l", "l", "l", "l"], fontSize: 7.5,
+      body: prows.map((p) => [fday(p.start), fday(p.finish), p.customer, p.product, p.owner, p.disp, fday(p.install)]),
+      color: (ri, ci) => (ci === 5 && prows[ri] && (prows[ri].disp === "Late" || prows[ri].disp === "Delayed") ? PC.bad : null),
+      empty: "Nothing scheduled in production this week." });
+    const lateOther = v.prodLate.filter((p) => !prows.includes(p));
+    if (lateOther.length) k.line(`Also late or delayed: ${lateOther.map((p) => `${p.customer} (${p.disp}, finish ${fdate(p.finish)})`).join(" · ")}`);
 
     k.footers(`${C.name || "Company"} · Daily commercial report · ${flong(v.T)} · amounts in ${CUR} · printed ${fdate(todayISO())}`);
     k.doc.save(`${slug(C.name)}-daily-report-${v.T}.pdf`);

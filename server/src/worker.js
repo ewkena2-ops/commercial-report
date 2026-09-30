@@ -8,7 +8,7 @@
    ========================================================================== */
 
 const DEPTS = {
-  commercial: { label: "Commercial", datasets: ["leads", "measurements", "payments", "expAdvance", "expFinal", "problems", "social"] },
+  commercial: { label: "Commercial", datasets: ["leads", "measurements", "payments", "expAdvance", "expFinal", "problems", "social", "production"] },
   purchasing: { label: "Purchasing", datasets: ["requests", "cheques", "materials", "suppliers", "ledger", "jobs", "issues", "cashNeeds", "summaries", "sent"] },
 };
 const ALLOWED_ORIGINS = ["https://ewkena2-ops.github.io"];
