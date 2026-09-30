@@ -307,7 +307,10 @@
       const busyTo = (disp === "Late" || disp === "Delayed") && from && from <= T ? T : "";
       const to = [p.start, p.finish, p.install, busyTo].filter(isISO).sort().pop() || from;
       const rank = { Late: 0, Delayed: 1, "In production": 2, Planned: 3, Ready: 4, Installed: 5 }[disp] ?? 3;
-      return { ...p, disp, rank, from, to };
+      const barFrom = isISO(p.start) ? p.start : isISO(p.finish) ? p.finish : "";
+      let barTo = isISO(p.finish) ? p.finish : barFrom;
+      if ((disp === "Late" || disp === "Delayed") && barFrom && barFrom <= T && barTo < T) barTo = T; // still in the workshop
+      return { ...p, disp, rank, from, to, barFrom, barTo };
     });
     v.prodWeek = v.prod.filter((p) => isISO(p.from) && p.from <= we && p.to >= ws).sort((a, b) => a.from.localeCompare(b.from) || a.rank - b.rank);
     v.prodFinishWeek = v.prod.filter((p) => within(p.finish, ws, we));
@@ -552,9 +555,7 @@
       v.days.map((d, i) => h("div", { class: `gt-day${d === v.T ? " today" : ""}`, style: `grid-column:${i + 2}` }, v.dayLabels[i].short, h("span", {}, String(parseD(d).getDate())))));
     const list = h("div", { class: "gt-list", role: "list" });
     for (const p of rows) {
-      const prodFrom = isISO(p.start) ? p.start : p.finish;
-      let prodTo = isISO(p.finish) ? p.finish : p.start;
-      if ((p.disp === "Late" || p.disp === "Delayed") && isISO(prodFrom) && prodFrom <= v.T && !(prodTo >= v.T)) prodTo = v.T; // still in the workshop
+      const prodFrom = p.barFrom, prodTo = p.barTo;
       const tip = () => [
         { value: p.disp, label: "status" },
         ...(Number(p.m2) ? [{ value: m2(p.m2), label: "size" }] : []),
@@ -1622,6 +1623,7 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
   const PC = {
     ink: [11, 11, 11], ink2: [82, 81, 78], muted: [137, 135, 129], grid: [225, 224, 217], rule: [195, 194, 183],
     band: [244, 243, 239], in: [42, 120, 214], inSoft: [205, 226, 251], good: [0, 99, 0], bad: [179, 38, 30],
+    goodFill: [12, 163, 12], badFill: [208, 59, 59], today: [234, 242, 251],
   };
   let pdfLibPromise = null, ethFontB64 = null;
   function loadPdfLib() {
@@ -1778,6 +1780,71 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     return k;
   }
 
+  function pdfSchedule(k, v) {
+    const { doc, W, H, M } = k, rows = v.prodWeek;
+    if (!rows.length) return; // the job table below says there is nothing
+    const labW = 150, x0 = M + labW, x1 = W - M, cw = (x1 - x0) / 7, rowH = 24, ti = v.days.indexOf(v.T);
+    const tone = { planned: [PC.inSoft, PC.in], active: [PC.in], done: [PC.goodFill], late: [PC.badFill] };
+    const fit = (str, size, style, w) => {
+      let t = pdfClean(str);
+      if (k.width(t, size, style) <= w) return t;
+      while (t.length > 1 && k.width(`${t}…`, size, style) > w) t = t.slice(0, -1);
+      return `${t}…`;
+    };
+    const diamond = (cx, cy, d, ring) => {
+      if (ring) { doc.setFillColor(255, 255, 255); doc.lines([[d + 1.5, d + 1.5], [-(d + 1.5), d + 1.5], [-(d + 1.5), -(d + 1.5)]], cx, cy - d - 1.5, [1, 1], "F", true); }
+      doc.setFillColor(...PC.ink); doc.lines([[d, d], [-d, d], [-d, -d]], cx, cy - d, [1, 1], "F", true);
+    };
+    const swatch = (x, y, w, h, key, r = 2) => {
+      const [fill, stroke] = tone[key];
+      doc.setFillColor(...fill);
+      if (stroke) { doc.setDrawColor(...stroke); doc.setLineWidth(1); }
+      doc.roundedRect(x, y, w, h, r, r, stroke ? "FD" : "F");
+    };
+    // legend
+    let lx = M;
+    for (const [key, label] of [["planned", "Planned"], ["active", "In production"], ["done", "Ready / installed"], ["late", "Late / delayed"]]) {
+      swatch(lx, k.y - 6.5, 12, 7, key, 1.5);
+      k.text(label, lx + 16, k.y, { size: 7.5, color: PC.ink2 });
+      lx += 16 + k.width(label, 7.5) + 14;
+    }
+    diamond(lx + 4, k.y - 3, 3.5);
+    k.text("Installation day", lx + 12, k.y, { size: 7.5, color: PC.ink2 });
+    k.y += 12;
+    const header = () => {
+      const y = k.y;
+      if (ti >= 0) { doc.setFillColor(...PC.today); doc.rect(x0 + cw * ti, y, cw, 24, "F"); }
+      v.days.forEach((d, i) => {
+        const cx = x0 + cw * (i + 0.5), today = i === ti;
+        k.text(v.dayLabels[i].short, cx, y + 9, { size: 7, color: today ? PC.in : PC.muted, align: "center", style: today ? "bold" : "normal" });
+        k.text(String(parseD(d).getDate()), cx, y + 19, { size: 8.5, style: "bold", color: today ? PC.in : PC.ink2, align: "center" });
+      });
+      doc.setDrawColor(...PC.rule); doc.setLineWidth(0.75); doc.line(M, y + 24, x1, y + 24);
+      k.y = y + 24;
+    };
+    k.ensure(12 + 24 + rowH * Math.min(rows.length, 4));
+    header();
+    for (const p of rows) {
+      if (k.y + rowH > H - 52) { doc.addPage(); k.y = M; header(); }
+      const y = k.y, late = p.disp === "Late" || p.disp === "Delayed";
+      if (ti >= 0) { doc.setFillColor(...PC.today); doc.rect(x0 + cw * ti, y, cw, rowH, "F"); }
+      doc.setDrawColor(...PC.grid); doc.setLineWidth(0.5);
+      for (let i = 0; i <= 7; i++) doc.line(x0 + cw * i, y, x0 + cw * i, y + rowH);
+      doc.line(M, y + rowH, x1, y + rowH);
+      k.text(fit(p.customer || p.project || "—", 8, "bold", labW - 10), M, y + 10.5, { size: 8, style: "bold" });
+      k.text(fit([p.product, Number(p.m2) ? m2(p.m2) : "", p.disp].filter(Boolean).join(" · "), 6.8, "normal", labW - 10), M, y + 19.5, { size: 6.8, color: late ? PC.bad : PC.ink2 });
+      if (isISO(p.barFrom) && p.barFrom <= v.we && p.barTo >= v.ws) {
+        const cutL = p.barFrom < v.ws, cutR = p.barTo > v.we;
+        const a = cutL ? 0 : v.days.indexOf(p.barFrom), b = cutR ? 6 : v.days.indexOf(p.barTo);
+        const bx = x0 + cw * a + (cutL ? 0 : 2.5), bw = cw * (b - a + 1) - (cutL ? 0 : 2.5) - (cutR ? 0 : 2.5);
+        swatch(bx, y + rowH / 2 - 4.5, bw, 9, PROD_TONE[p.disp] || "planned");
+      }
+      if (within(p.install, v.ws, v.we)) diamond(x0 + cw * (v.days.indexOf(p.install) + 0.5), y + rowH / 2, 4, true);
+      k.y += rowH;
+    }
+    k.y += 18;
+  }
+
   function pdfDelta(cur, prev, label = "last week") {
     if (!Number.isFinite(prev) || !Number.isFinite(cur) || prev === 0) return null;
     const ch = (cur - prev) / Math.abs(prev);
@@ -1861,9 +1928,17 @@ ${DATASETS.map((k) => `\n  ${k}: [\n${rows(D[k])}${D[k].length ? "," : ""}\n  ],
     k.table({ head: ["Paid date", "Customer", "Source", "Product", "Lead date"], align: ["l", "l", "l", "l", "l"],
       body: conv.map((l) => [fday(l.paid), l.customer, l.source, l.product, fdate(l.date)]), empty: "No new paid customers this week." });
 
-    // 10 Week production schedule
-    k.heading("10", "Week production schedule", `${num(v.prodWeek.length)} jobs · ${m2(v.prodM2.week)} · ${num(v.prodFinishWeek.length)} finish · ${num(v.prodInstallWeek.length)} installations · ${num(v.prodLate.length)} late or delayed`);
+    // 10 Week production schedule — its own page: numbers, schedule chart, job table
+    if (k.y > k.M + 40) { k.doc.addPage(); k.y = k.M; }
+    k.heading("10", "Week production schedule", `Week ${fday(v.ws)} – ${fday(v.we)}`);
     const prows = v.prodWeek;
+    k.kpis([
+      { label: "Jobs this week", value: num(prows.length), note: `${num(prows.filter((p) => p.status === "In production").length)} in production` },
+      { label: "m² this week", value: m2(v.prodM2.week), note: `${m2(v.prodM2.active)} in the workshop` },
+      { label: "Finish this week", value: num(v.prodFinishWeek.length), note: `${m2(v.prodM2.finish)} · ${num(v.prodFinishWeek.filter((p) => p.status === "Ready" || p.status === "Installed").length)} ready` },
+      { label: "Late or delayed", value: num(v.prodLate.length), note: v.prodLate.length ? "Needs attention" : "None", color: v.prodLate.length ? PC.bad : null },
+    ]);
+    pdfSchedule(k, v);
     k.table({ head: ["Start", "Finish", "Customer", "Product", "m²", "Responsible", "Status", "Installation"], align: ["l", "l", "l", "l", "r", "l", "l", "l"], fontSize: 7.5,
       body: prows.map((p) => [fday(p.start), fday(p.finish), p.customer, p.product, Number(p.m2) ? m2(p.m2) : "—", p.owner, p.disp, fday(p.install)]),
       foot: prows.length ? ["Total", "", "", "", m2(v.prodM2.week), "", "", ""] : null,
